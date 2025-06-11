@@ -3,23 +3,21 @@
 namespace App\Filament\Resources;
 
 use App\Filament\Resources\KategoriResource\Pages;
-use App\Filament\Resources\KategoriResource\RelationManagers;
 use App\Models\Kategori;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Resources\Resource;
 use Filament\Tables;
 use Filament\Tables\Table;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\SoftDeletingScope;
+use Illuminate\Support\Str;
 
 class KategoriResource extends Resource
 {
     protected static ?string $model = Kategori::class;
-
     protected static ?string $navigationIcon = 'heroicon-o-tag';
-    protected static ?string $navigationGroup = 'Data Mobil';
-    protected static ?string $navigationLabel = 'Kategori';
+    protected static ?string $navigationGroup = 'Master Data';
+    protected static ?int $navigationSort = 2;
+    protected static ?string $navigationLabel = 'Kategori Mobil';
 
     public static function form(Form $form): Form
     {
@@ -27,9 +25,18 @@ class KategoriResource extends Resource
             ->schema([
                 Forms\Components\TextInput::make('nama')
                     ->required()
-                    ->unique(ignoreRecord: true)
                     ->maxLength(255)
-                    ->label('Nama Kategori'),
+                    ->unique(ignoreRecord: true)
+                    ->live(onBlur: true)
+                    ->afterStateUpdated(fn (string $operation, $state, Forms\Set $set) => 
+                        $operation === 'create' ? $set('slug', Str::slug($state)) : null
+                    ),
+                Forms\Components\TextInput::make('slug')
+                    ->required()
+                    ->maxLength(255)
+                    ->unique(ignoreRecord: true),
+                Forms\Components\Textarea::make('deskripsi')
+                    ->columnSpanFull(),
             ]);
     }
 
@@ -37,36 +44,28 @@ class KategoriResource extends Resource
     {
         return $table
             ->columns([
-                Tables\Columns\TextColumn::make('id')
-                    ->sortable()
-                    ->searchable()
-                    ->label('ID')
-                    ->disableClick(),
-
                 Tables\Columns\TextColumn::make('nama')
-                    ->sortable()
                     ->searchable()
-                    ->label('Nama Kategori')
-                    ->disableClick(),
-            ])
-            ->filters([
-                //
+                    ->sortable(),
+                Tables\Columns\TextColumn::make('slug')
+                    ->searchable(),
+                Tables\Columns\TextColumn::make('mobils_count')
+                    ->counts('mobils')
+                    ->label('Jumlah Mobil'),
+                Tables\Columns\TextColumn::make('created_at')
+                    ->dateTime()
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->actions([
                 Tables\Actions\EditAction::make(),
+                Tables\Actions\DeleteAction::make(),
             ])
             ->bulkActions([
                 Tables\Actions\BulkActionGroup::make([
                     Tables\Actions\DeleteBulkAction::make(),
                 ]),
             ]);
-    }
-
-    public static function getRelations(): array
-    {
-        return [
-            //
-        ];
     }
 
     public static function getPages(): array

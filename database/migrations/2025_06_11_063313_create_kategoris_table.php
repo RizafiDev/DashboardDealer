@@ -13,7 +13,9 @@ return new class extends Migration
     {
         Schema::create('kategoris', function (Blueprint $table) {
             $table->id();
-            $table->string('nama')->unique()->required();
+            $table->string('nama')->unique();
+            $table->text('deskripsi')->nullable();
+            $table->string('slug')->unique(); // Untuk URL friendly
             $table->timestamps();
         });
     }

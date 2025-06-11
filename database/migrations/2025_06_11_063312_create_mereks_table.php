@@ -13,8 +13,10 @@ return new class extends Migration
     {
         Schema::create('mereks', function (Blueprint $table) {
             $table->id();
-            $table->string('nama')->unique()->required();
-            $table->string('logo')->required();
+            $table->string('nama')->unique();
+            $table->string('logo')->nullable(); // Logo bisa optional
+            $table->string('negara_asal')->nullable(); // Negara asal merek
+            $table->boolean('is_active')->default(true); // Status aktif merek
             $table->timestamps();
         });
     }
