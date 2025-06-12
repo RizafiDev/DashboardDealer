@@ -121,7 +121,10 @@ class KaryawanResource extends Resource
                     ]),
                 Tables\Filters\SelectFilter::make('departemen')
                     ->options(function () {
-                        return Karyawan::pluck('departemen', 'departemen')->toArray();
+                        return Karyawan::whereNotNull('departemen')
+                            ->distinct()
+                            ->pluck('departemen', 'departemen')
+                            ->toArray();
                     }),
             ])
             ->actions([

@@ -64,20 +64,43 @@ class Presensi extends Model
     public function cekTerlambat()
     {
         if (!$this->jam_masuk) return false;
-        
+
         $pengaturanKantor = PengaturanKantor::where('aktif', true)->first();
         if (!$pengaturanKantor) return false;
+
+        // Pastikan tanggal dalam format string Y-m-d
+        if ($this->tanggal instanceof Carbon) {
+            $tanggalString = $this->tanggal->format('Y-m-d');
+        } else {
+            // Jika tanggal sudah string, parse dulu untuk memastikan format yang benar
+            $tanggalString = Carbon::parse($this->tanggal)->format('Y-m-d');
+        }
+
+        // Pastikan jam_masuk dari pengaturan kantor dalam format HH:MM:SS
+        $jamMasukKantorString = $pengaturanKantor->jam_masuk;
         
-        $jamMasukKerja = Carbon::parse($this->tanggal->format('Y-m-d') . ' ' . $pengaturanKantor->jam_masuk);
+        // Jika jam_masuk sudah termasuk tanggal, ambil hanya bagian waktu
+        if (strlen($jamMasukKantorString) > 8) {
+            $jamMasukKantorString = Carbon::parse($jamMasukKantorString)->format('H:i:s');
+        }
+
+        // Gabungkan tanggal dengan jam masuk kantor
+        $jamMasukKerja = Carbon::parse($tanggalString . ' ' . $jamMasukKantorString);
         $jamMasukActual = Carbon::parse($this->jam_masuk);
-        
-        if ($jamMasukActual->gt($jamMasukKerja->addMinutes($pengaturanKantor->toleransi_terlambat))) {
+
+        // Tambahkan toleransi terlambat ke jam masuk kerja
+        $batasTerlambat = $jamMasukKerja->copy()->addMinutes($pengaturanKantor->toleransi_terlambat);
+
+        if ($jamMasukActual->gt($batasTerlambat)) {
             $this->terlambat = true;
-            $this->menit_terlambat = $jamMasukActual->diffInMinutes($jamMasukKerja->subMinutes($pengaturanKantor->toleransi_terlambat));
+            $this->menit_terlambat = $jamMasukActual->diffInMinutes($jamMasukKerja);
             $this->status = 'terlambat';
             return true;
         }
-        
+
+        $this->terlambat = false;
+        $this->menit_terlambat = 0;
+        $this->status = 'hadir';
         return false;
     }
 }
