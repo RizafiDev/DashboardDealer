@@ -10,4 +10,10 @@ export default defineConfig({
         }),
         tailwindcss(),
     ],
+    server: {
+        host: '0.0.0.0',  // Allow connections from all IPs
+        hmr: {
+            host: 'localhost'
+        },
+    },
 });

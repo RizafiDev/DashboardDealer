@@ -44,21 +44,132 @@ class Presensi extends Model
 
     public function hitungJamKerja()
     {
-        if ($this->jam_masuk && $this->jam_pulang) {
-            $masuk = Carbon::parse($this->jam_masuk);
-            $pulang = Carbon::parse($this->jam_pulang);
-            
-            $totalMenit = $pulang->diffInMinutes($masuk);
-            
-            // Kurangi istirahat 1 jam jika kerja lebih dari 6 jam
-            if ($totalMenit > 360) {
-                $totalMenit -= 60;
-            }
-            
-            return round($totalMenit / 60, 2);
+        if (!$this->jam_masuk || !$this->jam_pulang) {
+            return 0;
         }
+
+        // Pastikan menggunakan Carbon untuk parsing yang konsisten
+        $masuk = $this->jam_masuk instanceof Carbon ? $this->jam_masuk : Carbon::parse($this->jam_masuk);
+        $pulang = $this->jam_pulang instanceof Carbon ? $this->jam_pulang : Carbon::parse($this->jam_pulang);
+
+        // Debug logging untuk melihat nilai aktual
+        \Log::info('Perhitungan jam kerja:', [
+            'jam_masuk' => $masuk->toDateTimeString(),
+            'jam_pulang' => $pulang->toDateTimeString(),
+            'jam_masuk_timestamp' => $masuk->timestamp,
+            'jam_pulang_timestamp' => $pulang->timestamp
+        ]);
+
+        // Jika jam pulang lebih kecil dari jam masuk, berarti melewati tengah malam
+        if ($pulang->lt($masuk)) {
+            $pulang->addDay();
+        }
+
+        // Hitung selisih dalam menit
+        $diffInMinutes = $pulang->diffInMinutes($masuk);
         
-        return 0;
+        // Debug logging
+        \Log::info('Selisih waktu:', [
+            'diff_in_minutes' => $diffInMinutes,
+            'before_round' => $diffInMinutes / 60,
+            'after_round' => round($diffInMinutes / 60, 2)
+        ]);
+
+        // Konversi ke jam dengan presisi 2 desimal
+        $jamKerja = round($diffInMinutes / 60, 2);
+        
+        // Pastikan jam kerja tidak negatif
+        return max(0, $jamKerja);
+    }
+
+    /**
+     * Method alternatif untuk perhitungan jam kerja dengan presisi lebih tinggi
+     */
+    public function hitungJamKerjaPrecise()
+    {
+        if (!$this->jam_masuk || !$this->jam_pulang) {
+            return 0;
+        }
+
+        $masuk = $this->jam_masuk instanceof Carbon ? $this->jam_masuk : Carbon::parse($this->jam_masuk);
+        $pulang = $this->jam_pulang instanceof Carbon ? $this->jam_pulang : Carbon::parse($this->jam_pulang);
+
+        // Jika jam pulang lebih kecil dari jam masuk, berarti melewati tengah malam
+        if ($pulang->lt($masuk)) {
+            $pulang->addDay();
+        }
+
+        // Hitung selisih dalam detik untuk presisi tinggi
+        $diffInSeconds = $pulang->diffInSeconds($masuk);
+        
+        // Konversi ke jam (3600 detik = 1 jam)
+        $jamKerja = round($diffInSeconds / 3600, 2);
+        
+        return max(0, $jamKerja);
+    }
+
+    /**
+     * Method untuk mendapatkan jam kerja dalam format yang mudah dibaca
+     */
+    public function getJamKerjaFormatted()
+    {
+        if (!$this->jam_masuk || !$this->jam_pulang) {
+            return '0 jam 0 menit';
+        }
+
+        $masuk = $this->jam_masuk instanceof Carbon ? $this->jam_masuk : Carbon::parse($this->jam_masuk);
+        $pulang = $this->jam_pulang instanceof Carbon ? $this->jam_pulang : Carbon::parse($this->jam_pulang);
+
+        if ($pulang->lt($masuk)) {
+            $pulang->addDay();
+        }
+
+        $diffInMinutes = $pulang->diffInMinutes($masuk);
+        $jam = intval($diffInMinutes / 60);
+        $menit = $diffInMinutes % 60;
+
+        return "{$jam} jam {$menit} menit";
+    }
+
+    /**
+     * Method untuk mendapatkan total menit kerja
+     */
+    public function getTotalMenitKerja()
+    {
+        if (!$this->jam_masuk || !$this->jam_pulang) {
+            return 0;
+        }
+
+        $masuk = $this->jam_masuk instanceof Carbon ? $this->jam_masuk : Carbon::parse($this->jam_masuk);
+        $pulang = $this->jam_pulang instanceof Carbon ? $this->jam_pulang : Carbon::parse($this->jam_pulang);
+
+        if ($pulang->lt($masuk)) {
+            $pulang->addDay();
+        }
+
+        return $pulang->diffInMinutes($masuk);
+    }
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::saving(function ($presensi) {
+            if ($presensi->jam_masuk && $presensi->jam_pulang) {
+                // Gunakan method yang lebih presisi
+                $presensi->jam_kerja = $presensi->hitungJamKerjaPrecise();
+                
+                // Log untuk debugging
+                \Log::info('Saving presensi with jam_kerja:', [
+                    'karyawan_id' => $presensi->karyawan_id,
+                    'tanggal' => $presensi->tanggal,
+                    'jam_masuk' => $presensi->jam_masuk,
+                    'jam_pulang' => $presensi->jam_pulang,
+                    'jam_kerja' => $presensi->jam_kerja,
+                    'total_menit' => $presensi->getTotalMenitKerja()
+                ]);
+            }
+        });
     }
 
     public function cekTerlambat()

@@ -174,24 +174,31 @@ class AbsensiController extends Controller
 
                 // Update presensi untuk absen pulang
                 $presensiHariIni->jam_pulang = now();
-                $presensiHariIni->foto_pulang = $fotoPath;
-                $presensiHariIni->lokasi_pulang = $dataLokasi;
+$presensiHariIni->foto_pulang = $fotoPath;
+$presensiHariIni->lokasi_pulang = $dataLokasi;
                 
-                // Hitung jam kerja
-                $presensiHariIni->jam_kerja = $presensiHariIni->hitungJamKerja();
-                
+                // Jam kerja will be calculated automatically via model events
                 $presensiHariIni->save();
+                // Refresh model untuk mendapatkan data terbaru setelah save
+$presensiHariIni->refresh();
 
                 return response()->json([
-                    'success' => true,
-                    'message' => 'Absen pulang berhasil dicatat pada ' . now()->format('H:i:s'),
-                    'data' => [
-                        'id' => $presensiHariIni->id,
-                        'jam_masuk' => $presensiHariIni->jam_masuk->format('H:i:s'),
-                        'jam_pulang' => $presensiHariIni->jam_pulang->format('H:i:s'),
-                        'jam_kerja' => $presensiHariIni->jam_kerja
-                    ]
-                ]);
+    'success' => true,
+    'message' => 'Absen pulang berhasil dicatat pada ' . now()->format('H:i:s'),
+    'data' => [
+        'id' => $presensiHariIni->id,
+        'jam_masuk' => $presensiHariIni->jam_masuk->format('H:i:s'),
+        'jam_pulang' => $presensiHariIni->jam_pulang->format('H:i:s'),
+        'jam_kerja' => $presensiHariIni->jam_kerja,
+        'jam_kerja_formatted' => $presensiHariIni->getJamKerjaFormatted(),
+        'total_menit_kerja' => $presensiHariIni->getTotalMenitKerja(),
+        'debug_info' => [
+            'jam_masuk_timestamp' => $presensiHariIni->jam_masuk->timestamp,
+            'jam_pulang_timestamp' => $presensiHariIni->jam_pulang->timestamp,
+            'selisih_detik' => $presensiHariIni->jam_pulang->diffInSeconds($presensiHariIni->jam_masuk)
+        ]
+    ]
+]);
             }
 
         } catch (\Illuminate\Validation\ValidationException $e) {

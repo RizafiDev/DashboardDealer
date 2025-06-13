@@ -36,7 +36,7 @@
 
         {{-- Stats Cards --}}
         @if($karyawan && $rekapBulanIni)
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden transition-transform duration-300 hover:scale-105">
                 <div class="p-6 flex items-center">
                     <div class="p-3 rounded-full bg-blue-100 dark:bg-blue-900/50 mr-4">
@@ -47,6 +47,19 @@
                     <div>
                         <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Total Kehadiran</p>
                         <p class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $rekapBulanIni['hari_hadir'] ?? 0 }} Hari</p>
+                    </div>
+                </div>
+            </div>
+            <div class="bg-white dark:bg-gray-800 rounded-xl shadow-md overflow-hidden transition-transform duration-300 hover:scale-105">
+                <div class="p-6 flex items-center">
+                    <div class="p-3 rounded-full bg-red-100 dark:bg-red-900/50 mr-4">
+                        <svg class="w-6 h-6 text-red-600 dark:text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <p class="text-sm font-medium text-gray-500 dark:text-gray-400">Tidak Hadir</p>
+                        <p class="text-2xl font-semibold text-gray-900 dark:text-white">{{ $rekapBulanIni['hari_tidak_hadir'] ?? 0 }} Hari</p>
                     </div>
                 </div>
             </div>
@@ -103,14 +116,14 @@
                     <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-4">Absensi Cepat</h3>
                     <div class="flex flex-col space-y-4" id="main-buttons">
                         @if(!$presensiHariIni)
-                            <button type="button" onclick="mulaiAbsen('masuk')" class="w-full flex items-center justify-between px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200">
+                            <button type="button" onclick="mulaiAbsen('masuk')" class="w-full flex items-center justify-between px-4 py-3 bg-blue-100 hover:bg-blue-300 dark:bg-blue-900 dark:text-blue-600 text-blue-600 rounded-lg transition-colors duration-200">
                                 <span>Absen Masuk</span>
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                                 </svg>
                             </button>
                         @elseif(!$presensiHariIni->jam_pulang)
-                            <button type="button" onclick="mulaiAbsen('pulang')" class="w-full flex items-center justify-between px-4 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors duration-200">
+                            <button type="button" onclick="mulaiAbsen('pulang')" class="w-full flex items-center justify-between px-4 py-3 bg-green-100 hover:bg-green-300 dark:bg-green-900 dark:text-green-600  text-green-600 rounded-lg transition-colors duration-200">
                                 <span>Absen Pulang</span>
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3v1"/>
@@ -418,28 +431,58 @@ function initMap() {
     });
 
     // Watch posisi user
-    if (navigator.geolocation) {
-        watchId = navigator.geolocation.watchPosition(
-            position => {
-                const pos = {
-                    lat: position.coords.latitude,
-                    lng: position.coords.longitude
-                };
-                
-                // Update marker position
+    watchUserPosition();
+}
+
+// Expose initMap to global scope for Google Maps callback
+window.initMap = initMap;
+
+// Watch posisi user
+function watchUserPosition() {
+    if (!navigator.geolocation) {
+        showError('Geolocation tidak didukung oleh browser ini');
+        return;
+    }
+
+    // Tambahkan loading indicator
+    showLocationLoading(true);
+
+    const options = {
+        enableHighAccuracy: true,  // Gunakan GPS untuk akurasi tinggi
+        timeout: 30000,            // Timeout 30 detik
+        maximumAge: 0              // Selalu minta posisi baru
+    };
+
+    watchId = navigator.geolocation.watchPosition(
+        // Success callback
+        position => {
+            showLocationLoading(false);
+            
+            const pos = {
+                lat: position.coords.latitude,
+                lng: position.coords.longitude
+            };
+            
+            console.log('Position updated:', pos); // Debug log
+            
+            // Update marker position
+            if (marker) {
                 marker.setPosition(pos);
                 currentLocation = pos;
 
                 // Hitung & tampilkan jarak
                 const distance = calculateDistance(pos.lat, pos.lng, kantorLat, kantorLng);
                 
-                // Update info window dengan jarak
-                userInfo.setContent(`
-                    <div class="p-2">
-                        <b>Lokasi Anda</b><br>
-                        Jarak ke kantor: ${Math.round(distance)}m
-                    </div>
-                `);
+                // Update info window dengan jarak dan akurasi
+                const userInfo = new google.maps.InfoWindow({
+                    content: `
+                        <div class="p-2">
+                            <b>Lokasi Anda</b><br>
+                            Jarak ke kantor: ${Math.round(distance)}m<br>
+                            Akurasi: ±${Math.round(position.coords.accuracy)}m
+                        </div>
+                    `
+                });
                 userInfo.open(map, marker);
 
                 // Update status tombol absen
@@ -450,24 +493,58 @@ function initMap() {
                     map.setCenter(pos);
                     map.set('initialized', true);
                 }
-            },
-            error => {
-                console.error('Error getting location:', error);
-                showError('Tidak dapat mengakses lokasi Anda. Pastikan GPS aktif dan berikan izin lokasi.');
-            },
-            {
-                enableHighAccuracy: true,
-                timeout: 10000,
-                maximumAge: 0
             }
-        );
-    } else {
-        showError('Geolocation tidak didukung oleh browser ini');
-    }
+        },
+        // Error callback
+        error => {
+            showLocationLoading(false);
+            let errorMessage;
+            
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    errorMessage = 'Izin lokasi ditolak. Mohon aktifkan GPS dan izinkan akses lokasi.';
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    errorMessage = 'Informasi lokasi tidak tersedia. Pastikan GPS aktif dan berada di area terbuka.';
+                    break;
+                case error.TIMEOUT:
+                    errorMessage = 'Waktu mendapatkan lokasi habis. Periksa koneksi GPS dan internet Anda.';
+                    break;
+                default:
+                    errorMessage = 'Terjadi kesalahan saat mengakses lokasi: ' + error.message;
+            }
+            
+            console.error('Geolocation error:', error);
+            showError(errorMessage);
+        },
+        options
+    );
 }
 
-// Expose initMap to global scope for Google Maps callback
-window.initMap = initMap;
+// Tambahkan fungsi untuk menampilkan loading lokasi
+function showLocationLoading(show) {
+    const locationStatus = document.createElement('div');
+    locationStatus.id = 'location-status';
+    locationStatus.style.position = 'fixed';
+    locationStatus.style.top = '1rem';
+    locationStatus.style.left = '50%';
+    locationStatus.style.transform = 'translateX(-50%)';
+    locationStatus.style.padding = '0.5rem 1rem';
+    locationStatus.style.borderRadius = '0.5rem';
+    locationStatus.style.backgroundColor = 'rgba(0,0,0,0.8)';
+    locationStatus.style.color = 'white';
+    locationStatus.style.zIndex = '9999';
+
+    if (show) {
+        locationStatus.textContent = '📍 Mendapatkan lokasi...';
+        document.body.appendChild(locationStatus);
+    } else {
+        const existingStatus = document.getElementById('location-status');
+        if (existingStatus) {
+            existingStatus.remove();
+        }
+    }
+}
 
 // Update status lokasi
 function updateLocationStatus(distance) {
