@@ -23,6 +23,7 @@ class Karyawan extends Model
         'status',
         'alamat',
         'foto',
+        'akun_karyawan_id',
     ];
 
     protected $casts = [
@@ -71,7 +72,7 @@ class Karyawan extends Model
     {
         $bulan = $bulan ?? date('m');
         $tahun = $tahun ?? date('Y');
-        
+
         return $this->presensis()
             ->whereMonth('tanggal', $bulan)
             ->whereYear('tanggal', $tahun)
@@ -107,7 +108,7 @@ class Karyawan extends Model
     {
         $bulan = $bulan ?? date('m');
         $tahun = $tahun ?? date('Y');
-        
+
         return $this->pembelians()
             ->whereMonth('tanggal_pembelian', $bulan)
             ->whereYear('tanggal_pembelian', $tahun)
@@ -162,5 +163,10 @@ class Karyawan extends Model
             ->sortByDesc('jumlah_terjual')
             ->take($limit)
             ->values();
+    }
+
+    public function akunKaryawan()
+    {
+        return $this->belongsTo(AkunKaryawan::class, 'akun_karyawan_id');
     }
 }

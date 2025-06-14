@@ -5,40 +5,84 @@ namespace App\Http\Controllers;
 use App\Models\Presensi;
 use App\Models\Karyawan;
 use App\Models\PengaturanKantor;
+use App\Models\PengajuanCuti; // Tambahkan ini
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
 
 class AbsensiController extends Controller
 {
     public function index()
     {
-        $karyawan = Karyawan::where('email', auth()->user()->email)->first();
+        $akunKaryawan = Auth::guard('karyawan')->user();
+        $karyawan = $akunKaryawan ? $akunKaryawan->getKaryawanData() : null;
+
         if (!$karyawan) {
-            // Show error in the same page
-            session()->flash('error', 'Data karyawan tidak ditemukan');
+            session()->flash('error', 'Data karyawan tidak ditemukan atau belum terhubung dengan akun ini.');
             return view('absensi.index', [
                 'karyawan' => null,
+                'akunKaryawan' => $akunKaryawan,
                 'presensiHariIni' => null,
                 'pengaturanKantor' => PengaturanKantor::where('aktif', true)->first(),
-                'rekapBulanIni' => null
+                'rekapBulanIni' => null,
+                'pengajuanTerakhir' => collect(), // Kirim koleksi kosong
             ]);
         }
 
         $presensiHariIni = $karyawan->presensiHariIni();
         $pengaturanKantor = PengaturanKantor::where('aktif', true)->first();
-        
         $rekapBulanIni = $karyawan->rekapBulanan();
 
-        return view('absensi.index', compact('karyawan', 'presensiHariIni', 'pengaturanKantor', 'rekapBulanIni'));
+        // Ambil 5 pengajuan cuti/izin terakhir
+        $pengajuanTerakhir = $karyawan->pengajuanCutis()->latest()->take(5)->get();
+
+        return view('absensi.index', compact('karyawan', 'akunKaryawan', 'presensiHariIni', 'pengaturanKantor', 'rekapBulanIni', 'pengajuanTerakhir'));
     }
 
+    public function ajukanCuti(Request $request)
+    {
+        $karyawan = Auth::guard('karyawan')->user()->getKaryawanData();
+        if (!$karyawan) {
+            return back()->with('error', 'Data karyawan tidak ditemukan.');
+        }
+
+        $request->validate([
+            'jenis' => 'required|in:sakit,cuti_tahunan,izin_pribadi',
+            'tanggal_mulai' => 'required|date',
+            'tanggal_selesai' => 'required|date|after_or_equal:tanggal_mulai',
+            'alasan' => 'required|string|max:1000',
+            'lampiran' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048', // max 2MB
+        ]);
+
+        $pengajuan = new PengajuanCuti();
+        $pengajuan->karyawan_id = $karyawan->id;
+        $pengajuan->jenis = $request->jenis;
+        $pengajuan->tanggal_mulai = $request->tanggal_mulai;
+        $pengajuan->tanggal_selesai = $request->tanggal_selesai;
+        $pengajuan->alasan = $request->alasan;
+
+        // Hitung jumlah hari kerja
+        $pengajuan->jumlah_hari = $pengajuan->hitungJumlahHari();
+
+        if ($request->hasFile('lampiran')) {
+            $path = $request->file('lampiran')->store('lampiran_cuti', 'public');
+            $pengajuan->lampiran = $path;
+        }
+
+        $pengajuan->save();
+
+        return redirect()->route('absensi.index')->with('success', 'Pengajuan Anda telah berhasil dikirim.');
+    }
+
+    // ... (sisa method lainnya seperti absen, hitungJarak, histori)
     public function absen(Request $request)
     {
         try {
+            $akunKaryawan = Auth::guard('karyawan')->user(); // Eksplisit gunakan guard karyawan
             \Log::info('Absensi request received', [
-                'user' => auth()->user()->email,
+                'user' => $akunKaryawan->username,
                 'data' => $request->except('foto')
             ]);
 
@@ -54,11 +98,11 @@ class AbsensiController extends Controller
             \Log::info('Validation passed', ['validated' => $validated]);
 
             // Cek karyawan
-            $karyawan = Karyawan::where('email', auth()->user()->email)->first();
+            $karyawan = $akunKaryawan->getKaryawanData();
             if (!$karyawan) {
                 return response()->json([
                     'success' => false,
-                    'error' => 'Data karyawan tidak ditemukan'
+                    'error' => 'Data karyawan tidak ditemukan atau belum terhubung dengan akun ini'
                 ], 404);
             }
 
@@ -88,7 +132,7 @@ class AbsensiController extends Controller
 
             // Cek presensi hari ini
             $presensiHariIni = $karyawan->presensiHariIni();
-            
+
             // Proses foto
             $foto = $request->file('foto');
             if (!$foto || !$foto->isValid()) {
@@ -100,7 +144,7 @@ class AbsensiController extends Controller
 
             // Generate nama file unik
             $namaFile = 'presensi_' . $karyawan->id . '_' . now()->format('Y-m-d_H-i-s') . '_' . Str::random(8) . '.' . $foto->getClientOriginalExtension();
-            
+
             // Simpan foto
             $fotoPath = $foto->storeAs('presensi', $namaFile, 'public');
 
@@ -117,7 +161,7 @@ class AbsensiController extends Controller
                 if ($presensiHariIni) {
                     // Hapus foto yang sudah diupload karena tidak jadi digunakan
                     Storage::disk('public')->delete($fotoPath);
-                    
+
                     return response()->json([
                         'success' => false,
                         'error' => 'Anda sudah melakukan absen masuk hari ini'
@@ -131,10 +175,10 @@ class AbsensiController extends Controller
                 $presensi->jam_masuk = now();
                 $presensi->foto_masuk = $fotoPath;
                 $presensi->lokasi_masuk = $dataLokasi;
-                
+
                 // Cek keterlambatan
                 $presensi->cekTerlambat();
-                
+
                 $presensi->save();
 
                 return response()->json([
@@ -154,7 +198,7 @@ class AbsensiController extends Controller
                 if (!$presensiHariIni) {
                     // Hapus foto yang sudah diupload
                     Storage::disk('public')->delete($fotoPath);
-                    
+
                     return response()->json([
                         'success' => false,
                         'error' => 'Anda belum melakukan absen masuk hari ini'
@@ -165,7 +209,7 @@ class AbsensiController extends Controller
                 if ($presensiHariIni->jam_pulang) {
                     // Hapus foto yang sudah diupload
                     Storage::disk('public')->delete($fotoPath);
-                    
+
                     return response()->json([
                         'success' => false,
                         'error' => 'Anda sudah melakukan absen pulang hari ini'
@@ -174,31 +218,31 @@ class AbsensiController extends Controller
 
                 // Update presensi untuk absen pulang
                 $presensiHariIni->jam_pulang = now();
-$presensiHariIni->foto_pulang = $fotoPath;
-$presensiHariIni->lokasi_pulang = $dataLokasi;
-                
+                $presensiHariIni->foto_pulang = $fotoPath;
+                $presensiHariIni->lokasi_pulang = $dataLokasi;
+
                 // Jam kerja will be calculated automatically via model events
                 $presensiHariIni->save();
                 // Refresh model untuk mendapatkan data terbaru setelah save
-$presensiHariIni->refresh();
+                $presensiHariIni->refresh();
 
                 return response()->json([
-    'success' => true,
-    'message' => 'Absen pulang berhasil dicatat pada ' . now()->format('H:i:s'),
-    'data' => [
-        'id' => $presensiHariIni->id,
-        'jam_masuk' => $presensiHariIni->jam_masuk->format('H:i:s'),
-        'jam_pulang' => $presensiHariIni->jam_pulang->format('H:i:s'),
-        'jam_kerja' => $presensiHariIni->jam_kerja,
-        'jam_kerja_formatted' => $presensiHariIni->getJamKerjaFormatted(),
-        'total_menit_kerja' => $presensiHariIni->getTotalMenitKerja(),
-        'debug_info' => [
-            'jam_masuk_timestamp' => $presensiHariIni->jam_masuk->timestamp,
-            'jam_pulang_timestamp' => $presensiHariIni->jam_pulang->timestamp,
-            'selisih_detik' => $presensiHariIni->jam_pulang->diffInSeconds($presensiHariIni->jam_masuk)
-        ]
-    ]
-]);
+                    'success' => true,
+                    'message' => 'Absen pulang berhasil dicatat pada ' . now()->format('H:i:s'),
+                    'data' => [
+                        'id' => $presensiHariIni->id,
+                        'jam_masuk' => $presensiHariIni->jam_masuk->format('H:i:s'),
+                        'jam_pulang' => $presensiHariIni->jam_pulang->format('H:i:s'),
+                        'jam_kerja' => $presensiHariIni->jam_kerja,
+                        'jam_kerja_formatted' => $presensiHariIni->getJamKerjaFormatted(),
+                        'total_menit_kerja' => $presensiHariIni->getTotalMenitKerja(),
+                        'debug_info' => [
+                            'jam_masuk_timestamp' => $presensiHariIni->jam_masuk->timestamp,
+                            'jam_pulang_timestamp' => $presensiHariIni->jam_pulang->timestamp,
+                            'selisih_detik' => $presensiHariIni->jam_pulang->diffInSeconds($presensiHariIni->jam_masuk)
+                        ]
+                    ]
+                ]);
             }
 
         } catch (\Illuminate\Validation\ValidationException $e) {
@@ -207,7 +251,7 @@ $presensiHariIni->refresh();
                 'error' => 'Data tidak valid',
                 'errors' => $e->errors()
             ], 422);
-            
+
         } catch (\Exception $e) {
             \Log::error('Absensi error', [
                 'message' => $e->getMessage(),
@@ -235,14 +279,14 @@ $presensiHariIni->refresh();
         $R = 6371000; // Radius bumi dalam meter
         $dLat = deg2rad($lat2 - $lat1);
         $dLon = deg2rad($lon2 - $lon1);
-        
-        $a = sin($dLat/2) * sin($dLat/2) +
+
+        $a = sin($dLat / 2) * sin($dLat / 2) +
             cos(deg2rad($lat1)) * cos(deg2rad($lat2)) *
-            sin($dLon/2) * sin($dLon/2);
-            
-        $c = 2 * atan2(sqrt($a), sqrt(1-$a));
+            sin($dLon / 2) * sin($dLon / 2);
+
+        $c = 2 * atan2(sqrt($a), sqrt(1 - $a));
         $distance = $R * $c;
-        
+
         return $distance;
     }
 
@@ -251,16 +295,18 @@ $presensiHariIni->refresh();
      */
     public function histori()
     {
-        $karyawan = Karyawan::where('email', auth()->user()->email)->first();
-        
+        $akunKaryawan = Auth::guard('karyawan')->user(); // Eksplisit gunakan guard karyawan
+        $karyawan = $akunKaryawan->getKaryawanData();
+
         if (!$karyawan) {
-            return redirect()->route('absensi.index')->with('error', 'Data karyawan tidak ditemukan');
+            return redirect()->route('absensi.index')
+                ->with('error', 'Data karyawan tidak ditemukan atau belum terhubung dengan akun ini');
         }
 
-        $presensi = $karyawan->presensi()
+        $presensi = $karyawan->presensis()
             ->orderBy('tanggal', 'desc')
             ->paginate(15);
 
-        return view('absensi.histori', compact('karyawan', 'presensi'));
+        return view('absensi.histori', compact('karyawan', 'akunKaryawan', 'presensi'));
     }
 }

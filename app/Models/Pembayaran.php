@@ -14,17 +14,28 @@ class Pembayaran extends Model
         'pembelian_id',
         'no_kwitansi',
         'jumlah',
-        'jenis',
-        'metode',
-        'bank',
-        'no_referensi',
+        'jenis', // DP, Cicilan, Pelunasan, Tunai Lunas
+        'metode_pembayaran_utama', // Tunai, Transfer, EDC Debit, EDC Kredit, E-Wallet, Cek/Giro
+        'nama_bank_pengirim',
+        'nomor_rekening_pengirim',
+        'nama_pemilik_rekening_pengirim',
+        'nama_bank_tujuan',
+        'nomor_kartu_edc', // Last 4 digits
+        'jenis_mesin_edc',
+        'nama_ewallet',
+        'nomor_referensi_transaksi', // For transfer, e-wallet, etc.
+        'nomor_cek_giro',
+        'tanggal_jatuh_tempo_cek_giro',
+        'status_cek_giro', // Belum Cair, Cair, Ditolak
         'tanggal_bayar',
         'keterangan',
         'bukti_bayar',
+        'untuk_pembayaran', // DP, Angsuran ke-X, Pelunasan, Biaya Admin
     ];
 
     protected $casts = [
         'tanggal_bayar' => 'date',
+        'tanggal_jatuh_tempo_cek_giro' => 'date',
         'jumlah' => 'decimal:2',
     ];
 
@@ -64,21 +75,23 @@ class Pembayaran extends Model
             'dp' => 'Down Payment',
             'pelunasan' => 'Pelunasan',
             'cicilan' => 'Cicilan',
+            'tunai_lunas' => 'Tunai Lunas',
         ];
-
-        return $jenis[$this->jenis] ?? 'Tidak Diketahui';
+        return $jenis[$this->jenis] ?? $this->jenis;
     }
 
     // Get metode text
-    public function getMetodeTextAttribute()
+    public function getMetodePembayaranUtamaTextAttribute()
     {
         $metode = [
             'cash' => 'Tunai',
             'transfer' => 'Transfer Bank',
-            'kartu_kredit' => 'Kartu Kredit',
-            'kartu_debit' => 'Kartu Debit',
+            'edc_debit' => 'EDC - Kartu Debit',
+            'edc_kredit' => 'EDC - Kartu Kredit',
+            'ewallet' => 'E-Wallet',
+            'cheque' => 'Cek/Giro',
+            'setoran_leasing' => 'Setoran Leasing',
         ];
-
-        return $metode[$this->metode] ?? 'Tidak Diketahui';
+        return $metode[$this->metode_pembayaran_utama] ?? $this->metode_pembayaran_utama;
     }
 }

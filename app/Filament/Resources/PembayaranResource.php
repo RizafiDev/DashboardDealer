@@ -28,105 +28,37 @@ class PembayaranResource extends Resource
     
     protected static ?string $pluralModelLabel = 'Pembayaran';
 
-    protected static ?string $navigationGroup = 'Transaksi';
+    protected static ?string $navigationGroup = 'Laporan'; // Move to reports
+    protected static ?int $navigationSort = 2;
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
 
     public static function form(Form $form): Form
     {
+        // Form is no longer needed for creation, but can be used for viewing
         return $form
             ->schema([
+                // Make fields disabled for read-only view
                 Section::make('Detail Pembayaran')
-                    ->description('Masukkan detail pembayaran')
                     ->schema([
-                        Forms\Components\Select::make('pembelian_id')
-                            ->label('Nomor Faktur Pembelian')
-                            ->options(function () {
-                                return Pembelian::whereIn('status', ['pending', 'dp_paid'])
-                                    ->with(['stokMobil.mobil'])
-                                    ->get()
-                                    ->mapWithKeys(function ($pembelian) {
-                                        $mobilNama = $pembelian->stokMobil?->mobil?->nama ?? '-';
-                                        $label = "{$pembelian->no_faktur} - {$pembelian->nama_pembeli} ({$mobilNama})";
-                                        return [$pembelian->id => $label];
-                                    })
-                                    ->toArray();
-                            })
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->live()
-                            ->columnSpan(2),
-
-                        Forms\Components\Hidden::make('no_kwitansi')
-                            ->default(fn () => Pembayaran::generateNoKwitansi()),
-
-                        Forms\Components\TextInput::make('jumlah')
-                            ->label('Jumlah Pembayaran')
-                            ->prefix('Rp')
-                            ->numeric()
-                            ->required()
-                            ->columnSpan(1),
-
-                        Forms\Components\Select::make('jenis')
-                            ->label('Jenis Pembayaran')
-                            ->options([
-                                'dp' => 'Down Payment',
-                                'pelunasan' => 'Pelunasan',
-                                'cicilan' => 'Cicilan',
-                            ])
-                            ->required()
-                            ->columnSpan(1),
-
-                        Forms\Components\Select::make('metode')
-                            ->label('Metode Pembayaran')
-                            ->options([
-                                'cash' => 'Tunai',
-                                'transfer' => 'Transfer Bank',
-                                'kartu_kredit' => 'Kartu Kredit',
-                                'kartu_debit' => 'Kartu Debit',
-                            ])
-                            ->required()
-                            ->live()
-                            ->columnSpan(1),
-
-                        Forms\Components\TextInput::make('bank')
-                            ->label('Bank')
-                            ->maxLength(255)
-                            ->visible(fn (Forms\Get $get) => in_array($get('metode'), ['transfer', 'kartu_kredit', 'kartu_debit']))
-                            ->columnSpan(1),
-
-                        Forms\Components\TextInput::make('no_referensi')
-                            ->label('Nomor Referensi')
-                            ->helperText('Nomor transfer/nomor kartu')
-                            ->maxLength(255)
-                            ->visible(fn (Forms\Get $get) => in_array($get('metode'), ['transfer', 'kartu_kredit', 'kartu_debit']))
-                            ->columnSpan(1),
-
-                        Forms\Components\DatePicker::make('tanggal_bayar')
-                            ->label('Tanggal Pembayaran')
-                            ->default(now())
-                            ->required()
-                            ->columnSpan(1),
-
-                        Forms\Components\FileUpload::make('bukti_bayar')
-                            ->label('Bukti Pembayaran')
-                            ->image()
-                            ->directory('pembayaran')
-                            ->preserveFilenames()
-                            ->maxSize(2048)
-                            ->columnSpan(2),
-
-                        Forms\Components\Textarea::make('keterangan')
-                            ->label('Keterangan')
-                            ->rows(3)
-                            ->maxLength(1000)
-                            ->columnSpan(2),
-                    ])
-                    ->columns(2),
+                        Forms\Components\TextInput::make('pembelian.no_faktur')->label('Nomor Faktur')->disabled(),
+                        Forms\Components\TextInput::make('no_kwitansi')->disabled(),
+                        Forms\Components\TextInput::make('jumlah')->money('IDR')->disabled(),
+                        Forms\Components\TextInput::make('jenis')->disabled(),
+                        Forms\Components\TextInput::make('metode')->disabled(),
+                        Forms\Components\DatePicker::make('tanggal_bayar')->disabled(),
+                        Forms\Components\FileUpload::make('bukti_bayar')->disabled(),
+                        Forms\Components\Textarea::make('keterangan')->disabled(),
+                    ])->columns(2),
             ]);
     }
 
     public static function table(Table $table): Table
     {
+        // Table remains the same, it's a good log
         return $table
             ->columns([
                 Tables\Columns\TextColumn::make('no_kwitansi')
@@ -225,29 +157,21 @@ class PembayaranResource extends Resource
             ])
             ->actions([
                 Tables\Actions\ViewAction::make(),
-                Tables\Actions\EditAction::make(),
+                // Remove Edit and Delete to make it a true log
             ])
-            ->bulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make(),
-                ]),
-            ])
-            ->defaultSort('created_at', 'desc');
+            ->bulkActions([]);
     }
 
     public static function getRelations(): array
     {
-        return [
-            //
-        ];
+        return [];
     }
 
     public static function getPages(): array
     {
         return [
             'index' => Pages\ListPembayarans::route('/'),
-            'create' => Pages\CreatePembayaran::route('/create'),
-            'edit' => Pages\EditPembayaran::route('/{record}/edit'),
+            // Remove create and edit pages
         ];
     }
 }

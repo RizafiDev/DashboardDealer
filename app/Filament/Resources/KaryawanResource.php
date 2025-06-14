@@ -35,11 +35,47 @@ class KaryawanResource extends Resource
                         Forms\Components\TextInput::make('nama')
                             ->required()
                             ->maxLength(255),
+                        Forms\Components\Select::make('akun_karyawan_id')
+                            ->label('Akun Karyawan')
+                            ->relationship(
+                                'akunKaryawan',
+                                'username',
+                                fn($query) => $query->whereDoesntHave('karyawan')
+                            )
+                            ->searchable()
+                            ->preload()
+                            ->placeholder('Pilih akun karyawan')
+                            ->live()
+                            ->afterStateUpdated(function ($state, Forms\Set $set) {
+                                if ($state) {
+                                    $akunKaryawan = \App\Models\AkunKaryawan::find($state);
+                                    if ($akunKaryawan) {
+                                        $set('email', $akunKaryawan->email);
+                                    }
+                                }
+                            })
+                            ->createOptionForm([
+                                Forms\Components\TextInput::make('username')
+                                    ->required()
+                                    ->maxLength(255)
+                                    ->unique('akun_karyawans', 'username'),
+                                Forms\Components\TextInput::make('email')
+                                    ->email()
+                                    ->required()
+                                    ->maxLength(255)
+                                    ->unique('akun_karyawans', 'email'),
+                                Forms\Components\TextInput::make('password')
+                                    ->password()
+                                    ->required()
+                                    ->minLength(8)
+                                    ->maxLength(255),
+                            ]),
                         Forms\Components\TextInput::make('email')
                             ->email()
                             ->required()
                             ->unique(ignoreRecord: true)
-                            ->maxLength(255),
+                            ->maxLength(255)
+                            ->readonly(),
                         Forms\Components\TextInput::make('telepon')
                             ->tel()
                             ->maxLength(20),
@@ -52,7 +88,7 @@ class KaryawanResource extends Resource
                             ->columnSpanFull(),
                     ])
                     ->columns(2),
-                
+
                 Forms\Components\Section::make('Informasi Pekerjaan')
                     ->schema([
                         Forms\Components\TextInput::make('jabatan')

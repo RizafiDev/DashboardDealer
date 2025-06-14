@@ -25,17 +25,18 @@ use Illuminate\Support\Collection;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\Filter;
 use Filament\Forms\Components\DatePicker;
+use App\Filament\Resources\PembelianResource\RelationManagers;
 
 class PembelianResource extends Resource
 {
     protected static ?string $model = Pembelian::class;
 
     protected static ?string $navigationIcon = 'heroicon-o-shopping-cart';
-    
+
     protected static ?string $navigationLabel = 'Pembelian';
-    
+
     protected static ?string $modelLabel = 'Pembelian';
-    
+
     protected static ?string $pluralModelLabel = 'Pembelian';
 
     protected static ?string $navigationGroup = 'Transaksi';
@@ -45,7 +46,6 @@ class PembelianResource extends Resource
         return $form
             ->schema([
                 Wizard::make([
-                    // Step 1: Pilih Mobil & Sales
                     Wizard\Step::make('Pilih Mobil & Sales')
                         ->icon('heroicon-o-truck')
                         ->schema([
@@ -62,12 +62,20 @@ class PembelianResource extends Resource
 
                                     Forms\Components\Select::make('mobil_id')
                                         ->label('Pilih Mobil')
-                                        ->options(
-                                            Mobil::with('merek')->get()
-                                                ->mapWithKeys(fn($mobil) => [
-                                                    $mobil->id => ($mobil->merek?->nama ? $mobil->merek->nama . ' ' : '') . $mobil->nama,
-                                                ])
-                                        )
+                                        ->options(function (Get $get, $state) {
+                                            $mobils = Mobil::with('merek')->get();
+                                            $options = $mobils->mapWithKeys(fn($mobil) => [
+                                                $mobil->id => ($mobil->merek?->nama ? $mobil->merek->nama . ' ' : '') . $mobil->nama,
+                                            ]);
+                                            // Tambahkan value lama jika tidak ada di list (misal data sudah tidak aktif)
+                                            if ($state && !$options->has($state)) {
+                                                $mobil = Mobil::find($state);
+                                                if ($mobil) {
+                                                    $options->put($mobil->id, ($mobil->merek?->nama ? $mobil->merek->nama . ' ' : '') . $mobil->nama);
+                                                }
+                                            }
+                                            return $options;
+                                        })
                                         ->searchable()
                                         ->preload()
                                         ->required()
@@ -80,13 +88,17 @@ class PembelianResource extends Resource
 
                                     Forms\Components\Select::make('varian_id')
                                         ->label('Varian')
-                                        ->options(fn (Get $get): Collection => 
-                                            Varian::where('mobil_id', $get('mobil_id'))
-                                                ->where('is_active', true)
-                                                ->get()
-                                                ->filter(fn($varian) => !empty($varian->nama))
-                                                ->pluck('nama', 'id')
-                                        )
+                                        ->options(function (Get $get, $state) {
+                                            $query = Varian::query()->where('mobil_id', $get('mobil_id'))->where('is_active', true);
+                                            $options = $query->get()->filter(fn($varian) => !empty($varian->nama))->pluck('nama', 'id');
+                                            if ($state && !$options->has($state)) {
+                                                $varian = Varian::find($state);
+                                                if ($varian) {
+                                                    $options->put($varian->id, $varian->nama);
+                                                }
+                                            }
+                                            return $options;
+                                        })
                                         ->searchable()
                                         ->preload()
                                         ->required()
@@ -98,16 +110,24 @@ class PembelianResource extends Resource
 
                                     Forms\Components\Select::make('stok_mobil_id')
                                         ->label('Pilih Unit Mobil')
-                                        ->options(fn (Get $get): Collection => 
-                                            StokMobil::where('mobil_id', $get('mobil_id'))
+                                        ->options(function (Get $get, $state) {
+                                            $query = StokMobil::query()
+                                                ->where('mobil_id', $get('mobil_id'))
                                                 ->where('varian_id', $get('varian_id'))
-                                                ->where('status', 'ready') // <--- Ganti dari 'available' ke 'ready'
-                                                ->get()
+                                                ->where('status', 'ready');
+                                            $options = $query->get()
                                                 ->filter(fn($stok) => !empty($stok->warna) && !empty($stok->no_rangka))
-                                                ->mapWithKeys(fn ($stok) => [
+                                                ->mapWithKeys(fn($stok) => [
                                                     $stok->id => "{$stok->warna} - {$stok->no_rangka} - Rp " . number_format($stok->harga_jual, 0, ',', '.')
-                                                ])
-                                        )
+                                                ]);
+                                            if ($state && !$options->has($state)) {
+                                                $stok = StokMobil::find($state);
+                                                if ($stok) {
+                                                    $options->put($stok->id, "{$stok->warna} - {$stok->no_rangka} - Rp " . number_format($stok->harga_jual, 0, ',', '.'));
+                                                }
+                                            }
+                                            return $options;
+                                        })
                                         ->searchable()
                                         ->preload()
                                         ->required()
@@ -123,7 +143,7 @@ class PembelianResource extends Resource
                                         ->columnSpan(2),
 
                                     Forms\Components\TextInput::make('harga_jual')
-                                        ->label('Harga Jual')
+                                        ->label('Harga Jual (OTR)')
                                         ->prefix('Rp')
                                         ->numeric()
                                         ->readOnly()
@@ -138,8 +158,6 @@ class PembelianResource extends Resource
                                 ])
                                 ->columns(2),
                         ]),
-
-                    // Step 2: Data Pembeli
                     Wizard\Step::make('Data Pembeli')
                         ->icon('heroicon-o-user')
                         ->schema([
@@ -151,20 +169,17 @@ class PembelianResource extends Resource
                                         ->required()
                                         ->maxLength(255)
                                         ->columnSpan(2),
-
                                     Forms\Components\TextInput::make('nik_pembeli')
                                         ->label('NIK')
                                         ->required()
                                         ->maxLength(20)
                                         ->unique(ignoreRecord: true)
                                         ->columnSpan(1),
-
                                     Forms\Components\DatePicker::make('tanggal_lahir_pembeli')
                                         ->label('Tanggal Lahir')
                                         ->required()
                                         ->maxDate(now()->subYears(17))
                                         ->columnSpan(1),
-
                                     Forms\Components\Select::make('jenis_kelamin_pembeli')
                                         ->label('Jenis Kelamin')
                                         ->options([
@@ -173,14 +188,12 @@ class PembelianResource extends Resource
                                         ])
                                         ->required()
                                         ->columnSpan(1),
-
                                     Forms\Components\TextInput::make('pekerjaan_pembeli')
                                         ->label('Pekerjaan')
                                         ->maxLength(255)
                                         ->columnSpan(1),
                                 ])
                                 ->columns(2),
-
                             Section::make('Kontak & Alamat')
                                 ->schema([
                                     Forms\Components\TextInput::make('telepon_pembeli')
@@ -189,13 +202,11 @@ class PembelianResource extends Resource
                                         ->required()
                                         ->maxLength(15)
                                         ->columnSpan(1),
-
                                     Forms\Components\TextInput::make('email_pembeli')
                                         ->label('Email')
                                         ->email()
                                         ->maxLength(255)
                                         ->columnSpan(1),
-
                                     Forms\Components\Textarea::make('alamat_pembeli')
                                         ->label('Alamat Lengkap')
                                         ->required()
@@ -204,161 +215,143 @@ class PembelianResource extends Resource
                                 ])
                                 ->columns(2),
                         ]),
-
-                    // Step 3: Detail Pembayaran
-                    Wizard\Step::make('Detail Pembayaran')
+                    Wizard\Step::make('Detail Pembayaran & Kredit')
                         ->icon('heroicon-o-credit-card')
                         ->schema([
-                            Section::make('Metode Pembayaran')
+                            Section::make('Metode Pembelian')
                                 ->schema([
                                     Forms\Components\Select::make('metode_pembayaran')
-                                        ->label('Metode Pembayaran')
+                                        ->label('Metode Pembelian')
                                         ->options([
-                                            'cash' => 'Tunai',
-                                            'kredit' => 'Kredit Bank',
+                                            'tunai_lunas' => 'Tunai Lunas',
+                                            'tunai_bertahap' => 'Tunai Bertahap',
+                                            'kredit_bank' => 'Kredit Bank',
                                             'leasing' => 'Leasing',
                                         ])
                                         ->required()
                                         ->live()
-                                        ->afterStateUpdated(function (Set $set, $state) {
-                                            if ($state === 'cash') {
-                                                $set('dp', null);
-                                                $set('bank_kredit', null);
-                                                $set('tenor_bulan', null);
-                                                $set('cicilan_per_bulan', null);
-                                            }
-                                        })
-                                        ->columnSpan(2),
-
+                                        ->columnSpanFull(),
+                                ])->columns(1),
+                            Section::make('Detail Down Payment (DP)')
+                                ->schema([
                                     Forms\Components\TextInput::make('dp')
-                                        ->label('Down Payment (DP)')
+                                        ->label('DP Total Dibayar ke Dealer')
                                         ->prefix('Rp')
                                         ->numeric()
-                                        ->default(0)
-                                        ->live(debounce: 500)
-                                        ->afterStateUpdated(function (Set $set, Get $get, $state) {
-                                            $hargaJual = $get('harga_jual') ?? 0;
-                                            $dp = $state ?? 0;
-                                            $sisa = $hargaJual - $dp;
-                                            $set('sisa_pembayaran', $sisa);
-                                            
-                                            $tenor = $get('tenor_bulan');
-                                            if ($tenor && $sisa > 0) {
-                                                $set('cicilan_per_bulan', $sisa / $tenor);
-                                            }
-                                        })
-                                        ->columnSpan(1)
-                                        ->hidden(fn (Get $get) => $get('metode_pembayaran') === 'cash'),
-
-                                    Forms\Components\TextInput::make('sisa_pembayaran')
-                                        ->label('Sisa Pembayaran')
+                                        ->live(onBlur: true)
+                                        ->required(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing']))
+                                        ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing', 'tunai_bertahap'])),
+                                    Forms\Components\TextInput::make('dp_murni')
+                                        ->label('DP Murni dari Customer')
                                         ->prefix('Rp')
                                         ->numeric()
-                                        ->readOnly()
-                                        ->dehydrated()
-                                        ->default(0) // Tambahkan default(0)
-                                        ->columnSpan(1)
-                                        ->hidden(fn (Get $get) => $get('metode_pembayaran') === 'cash'),
-
-                                    Forms\Components\TextInput::make('bank_kredit')
-                                        ->label('Bank/Leasing')
-                                        ->maxLength(255)
-                                        ->columnSpan(1)
-                                        ->visible(fn (Get $get) => in_array($get('metode_pembayaran'), ['kredit', 'leasing'])),
-
-                                    Forms\Components\Select::make('tenor_bulan')
-                                        ->label('Tenor (Bulan)')
-                                        ->options([
-                                            12 => '12 Bulan',
-                                            24 => '24 Bulan',
-                                            36 => '36 Bulan',
-                                            48 => '48 Bulan',
-                                            60 => '60 Bulan',
-                                        ])
-                                        ->live()
-                                        ->afterStateUpdated(function (Set $set, Get $get, $state) {
-                                            $sisa = $get('sisa_pembayaran') ?? 0;
-                                            if ($state && $sisa > 0) {
-                                                $set('cicilan_per_bulan', $sisa / $state);
-                                            }
-                                        })
-                                        ->columnSpan(1)
-                                        ->visible(fn (Get $get) => in_array($get('metode_pembayaran'), ['kredit', 'leasing'])),
-
-                                    Forms\Components\TextInput::make('cicilan_per_bulan')
-                                        ->label('Cicilan per Bulan')
+                                        ->live(onBlur: true)
+                                        ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing'])),
+                                    Forms\Components\TextInput::make('subsidi_dp')
+                                        ->label('Subsidi DP')
                                         ->prefix('Rp')
                                         ->numeric()
-                                        ->readOnly()
-                                        ->dehydrated()
-                                        ->columnSpan(1)
-                                        ->visible(fn (Get $get) => in_array($get('metode_pembayaran'), ['kredit', 'leasing'])),
+                                        ->live(onBlur: true)
+                                        ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing'])),
                                 ])
-                                ->columns(2),
+                                ->columns(3)
+                                ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing', 'tunai_bertahap'])),
+                            Section::make('Informasi Leasing/Bank')
+                                ->schema([
+                                    Forms\Components\TextInput::make('nama_leasing_bank')
+                                        ->label('Nama Leasing/Bank')
+                                        ->required(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing']))
+                                        ->maxLength(255),
+                                    Forms\Components\TextInput::make('kontak_leasing_bank')
+                                        ->label('Kontak Leasing/Bank (Sales/PIC)')
+                                        ->maxLength(255),
+                                    Forms\Components\TextInput::make('tenor_bulan')
+                                        ->label('Tenor (Bulan)')
+                                        ->numeric()
+                                        ->required(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing']))
+                                        ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing', 'tunai_bertahap'])),
+                                    Forms\Components\TextInput::make('suku_bunga_tahunan_persen')
+                                        ->label('Suku Bunga (% per tahun)')
+                                        ->numeric()
+                                        ->suffix('%'),
+                                    Forms\Components\Select::make('jenis_bunga')
+                                        ->options(['flat' => 'Flat', 'efektif' => 'Efektif', 'anuitas' => 'Anuitas']),
+                                    Forms\Components\TextInput::make('cicilan_per_bulan')
+                                        ->label('Angsuran per Bulan')
+                                        ->prefix('Rp')
+                                        ->numeric(),
+                                    Forms\Components\TextInput::make('pokok_hutang_awal')
+                                        ->label('Pokok Hutang Awal (Plafond Kredit)')
+                                        ->prefix('Rp')
+                                        ->numeric()
+                                        ->helperText('Harga OTR - DP Total'),
+                                    Forms\Components\Select::make('angsuran_pertama_dibayar_kapan')
+                                        ->label('Pembayaran Angsuran Pertama')
+                                        ->options(['addm' => 'ADDM (Di Muka)', 'addb' => 'ADDB (Di Belakang)']),
+                                ])
+                                ->columns(2)
+                                ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing'])),
+                            Section::make('Biaya Tambahan (Leasing/Bank)')
+                                ->schema([
+                                    Forms\Components\TextInput::make('biaya_admin_leasing')
+                                        ->label('Biaya Administrasi')
+                                        ->prefix('Rp')
+                                        ->numeric(),
+                                    Forms\Components\Grid::make(2)->schema([
+                                        Forms\Components\TextInput::make('biaya_provisi')
+                                            ->label('Biaya Provisi')
+                                            ->numeric()
+                                            ->prefix(fn(Get $get) => $get('tipe_biaya_provisi') === 'persen' ? null : 'Rp')
+                                            ->suffix(fn(Get $get) => $get('tipe_biaya_provisi') === 'persen' ? '%' : null),
+                                        Forms\Components\Select::make('tipe_biaya_provisi')
+                                            ->options(['nominal' => 'Nominal (Rp)', 'persen' => 'Persentase (%)'])
+                                            ->default('nominal')
+                                            ->label('Tipe Provisi'),
+                                    ]),
+                                ])
+                                ->columns(2)
+                                ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing'])),
+                            Section::make('Detail Asuransi Kendaraan')
+                                ->schema([
+                                    Forms\Components\TextInput::make('nama_asuransi')
+                                        ->label('Nama Perusahaan Asuransi'),
+                                    Forms\Components\Select::make('jenis_asuransi')
+                                        ->options(['all_risk' => 'All Risk', 'tlo' => 'TLO (Total Loss Only)']),
+                                    Forms\Components\TextInput::make('periode_asuransi_tahun')
+                                        ->label('Periode Asuransi (Tahun)')
+                                        ->numeric(),
+                                    Forms\Components\TextInput::make('premi_asuransi_total')
+                                        ->label('Total Premi Asuransi')
+                                        ->prefix('Rp')
+                                        ->numeric(),
+                                    Forms\Components\Select::make('pembayaran_premi_asuransi')
+                                        ->label('Pembayaran Premi')
+                                        ->options([
+                                            'include_angsuran' => 'Termasuk Angsuran',
+                                            'bayar_dimuka' => 'Bayar di Muka ke Dealer',
+                                            'bayar_langsung_asuransi' => 'Bayar Langsung ke Asuransi',
+                                        ]),
+                                ])
+                                ->columns(2)
+                                ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing'])),
                         ]),
-
-                    // Step 4: Konfirmasi & Catatan
                     Wizard\Step::make('Konfirmasi')
                         ->icon('heroicon-o-document-check')
                         ->schema([
-                            Section::make('Catatan & Dokumen')
+                            Section::make('Catatan & Status Awal')
                                 ->schema([
                                     Forms\Components\Textarea::make('catatan')
                                         ->label('Catatan Tambahan')
                                         ->rows(3)
-                                        ->columnSpan(2),
-
-                                    Forms\Components\Select::make('status')
-                                        ->label('Status')
-                                        ->options([
-                                            'pending' => 'Menunggu Pembayaran',
-                                            'dp_paid' => 'DP Dibayar',
-                                            'completed' => 'Selesai',
-                                        ])
-                                        ->default('pending')
-                                        ->required()
-                                        ->columnSpan(1),
-
+                                        ->columnSpanFull(),
+                                    Forms\Components\Hidden::make('status')->default('booking'),
                                     Forms\Components\Hidden::make('no_faktur')
-                                        ->default(fn () => Pembelian::generateNoFaktur()),
-                                ])
-                                ->columns(2),
-
-                            Section::make('Ringkasan Pembelian')
-                                ->schema([
-                                    Forms\Components\Placeholder::make('ringkasan')
-                                        ->label('')
-                                        ->content(function (Get $get) {
-                                            $mobilId = $get('mobil_id');
-                                            $varianId = $get('varian_id');
-                                            $stokId = $get('stok_mobil_id');
-                                            $harga = $get('harga_jual');
-                                            $dp = $get('dp') ?? 0;
-                                            
-                                            if (!$mobilId || !$varianId || !$stokId) {
-                                                return 'Silakan lengkapi data mobil terlebih dahulu.';
-                                            }
-                                            
-                                            $mobil = Mobil::find($mobilId);
-                                            $varian = Varian::find($varianId);
-                                            $stok = StokMobil::find($stokId);
-                                            
-                                            return view('filament.forms.components.pembelian-summary', [
-                                                'mobil' => $mobil,
-                                                'varian' => $varian,
-                                                'stok' => $stok,
-                                                'harga' => $harga,
-                                                'dp' => $dp,
-                                                'pembeli' => $get('nama_pembeli'),
-                                                'telepon' => $get('telepon_pembeli'),
-                                                'metode' => $get('metode_pembayaran'),
-                                            ]);
-                                        }),
-                                ]),
+                                        ->default(fn() => Pembelian::generateNoFaktur()),
+                                ])->columns(1),
                         ]),
                 ])
-                ->columnSpanFull()
-                ->persistStepInQueryString()
+                    ->columnSpanFull()
+                    ->persistStepInQueryString()
             ]);
     }
 
@@ -370,54 +363,44 @@ class PembelianResource extends Resource
                     ->label('Nomor Faktur')
                     ->searchable()
                     ->sortable(),
-
                 Tables\Columns\TextColumn::make('nama_pembeli')
                     ->label('Pembeli')
                     ->searchable()
                     ->sortable(),
-
                 Tables\Columns\TextColumn::make('stokMobil.mobil.nama')
                     ->label('Mobil')
                     ->sortable(),
-
-                Tables\Columns\TextColumn::make('stokMobil.varian.nama')
-                    ->label('Varian')
-                    ->sortable(),
-
-                Tables\Columns\TextColumn::make('stokMobil.warna')
-                    ->label('Warna')
-                    ->badge(),
-
-                Tables\Columns\TextColumn::make('karyawan.nama')
-                    ->label('Sales')
-                    ->sortable(),
-
                 Tables\Columns\TextColumn::make('harga_jual')
                     ->label('Harga')
                     ->money('IDR')
                     ->sortable(),
-
+                Tables\Columns\TextColumn::make('total_bayar')
+                    ->label('Total Dibayar')
+                    ->money('IDR')
+                    ->state(fn(Pembelian $record): float => $record->pembayarans()->sum('jumlah')),
+                Tables\Columns\TextColumn::make('sisa_pembayaran_aktual')
+                    ->label('Sisa Bayar')
+                    ->money('IDR')
+                    ->color(fn($state) => $state > 0 ? 'warning' : 'success'),
                 Tables\Columns\BadgeColumn::make('status')
                     ->label('Status')
                     ->colors([
-                        'warning' => 'pending',
-                        'primary' => 'dp_paid',
+                        'gray' => 'booking',
+                        'warning' => 'in_progress',
                         'success' => 'completed',
                         'danger' => 'cancelled',
                     ])
-                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                        'pending' => 'Menunggu',
-                        'dp_paid' => 'DP Dibayar',
-                        'completed' => 'Selesai',
-                        'cancelled' => 'Dibatalkan',
+                    ->formatStateUsing(fn(string $state): string => match ($state) {
+                        'booking' => 'Booking',
+                        'in_progress' => 'Pembayaran',
+                        'completed' => 'Lunas',
+                        'cancelled' => 'Batal',
                         default => $state,
                     }),
-
                 Tables\Columns\TextColumn::make('tanggal_pembelian')
                     ->label('Tanggal')
                     ->date()
                     ->sortable(),
-
                 Tables\Columns\TextColumn::make('created_at')
                     ->label('Dibuat')
                     ->dateTime()
@@ -427,9 +410,9 @@ class PembelianResource extends Resource
             ->filters([
                 SelectFilter::make('status')
                     ->options([
-                        'pending' => 'Menunggu Pembayaran',
-                        'dp_paid' => 'DP Dibayar',
-                        'completed' => 'Selesai',
+                        'booking' => 'Booking',
+                        'in_progress' => 'Dalam Pembayaran',
+                        'completed' => 'Selesai (Lunas)',
                         'cancelled' => 'Dibatalkan',
                     ]),
 
@@ -448,11 +431,11 @@ class PembelianResource extends Resource
                         return $query
                             ->when(
                                 $data['dari_tanggal'],
-                                fn (Builder $query) => $query->whereDate('tanggal_pembelian', '>=', $data['dari_tanggal'])
+                                fn(Builder $query) => $query->whereDate('tanggal_pembelian', '>=', $data['dari_tanggal'])
                             )
                             ->when(
                                 $data['sampai_tanggal'],
-                                fn (Builder $query) => $query->whereDate('tanggal_pembelian', '<=', $data['sampai_tanggal'])
+                                fn(Builder $query) => $query->whereDate('tanggal_pembelian', '<=', $data['sampai_tanggal'])
                             );
                     }),
             ])
@@ -472,96 +455,111 @@ class PembelianResource extends Resource
     {
         return $infolist
             ->schema([
-                Infolists\Components\Section::make('Informasi Pembelian')
-                    ->schema([
-                        Infolists\Components\Grid::make(2)
+                Infolists\Components\Tabs::make('Label')
+                    ->tabs([
+                        Infolists\Components\Tabs\Tab::make('Ringkasan Pembelian')
+                            ->icon('heroicon-o-shopping-bag')
                             ->schema([
-                                Infolists\Components\TextEntry::make('no_faktur')
-                                    ->label('Nomor Faktur'),
-                                Infolists\Components\TextEntry::make('tanggal_pembelian')
-                                    ->label('Tanggal Pembelian')
-                                    ->date(),
-                                Infolists\Components\TextEntry::make('karyawan.nama')
-                                    ->label('Sales'),
-                                Infolists\Components\TextEntry::make('status')
-                                    ->label('Status')
-                                    ->badge()
-                                    ->color(fn (string $state): string => match ($state) {
-                                        'pending' => 'warning',
-                                        'dp_paid' => 'primary',
-                                        'completed' => 'success',
-                                        'cancelled' => 'danger',
-                                    }),
+                                Infolists\Components\Section::make()
+                                    ->schema([
+                                        Infolists\Components\Grid::make(3)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('no_faktur'),
+                                                Infolists\Components\TextEntry::make('tanggal_pembelian')->date(),
+                                                Infolists\Components\TextEntry::make('status')->badge()->color(fn(string $state): string => match ($state) {
+                                                    'booking' => 'gray',
+                                                    'in_progress' => 'warning',
+                                                    'completed' => 'success',
+                                                    'cancelled' => 'danger',
+                                                    default => 'gray',
+                                                })->formatStateUsing(fn($state) => ucfirst(str_replace('_', ' ', $state))),
+                                            ]),
+                                        Infolists\Components\Grid::make(3)
+                                            ->schema([
+                                                Infolists\Components\TextEntry::make('harga_jual')->money('IDR'),
+                                                Infolists\Components\TextEntry::make('total_bayar')->money('IDR'),
+                                                Infolists\Components\TextEntry::make('sisa_pembayaran_aktual')->label('Sisa Pembayaran')->money('IDR')->color(fn($state) => $state > 0 ? 'warning' : 'success'),
+                                            ]),
+                                        Infolists\Components\TextEntry::make('karyawan.nama')->label('Sales'),
+                                        Infolists\Components\TextEntry::make('metode_pembayaran')->label('Metode Pembelian')->formatStateUsing(fn($state) => ucfirst(str_replace('_', ' ', $state))),
+                                    ]),
                             ]),
-                    ]),
-
-                Infolists\Components\Section::make('Detail Mobil')
-                    ->schema([
-                        Infolists\Components\Grid::make(3)
+                        Infolists\Components\Tabs\Tab::make('Detail Mobil')
+                            ->icon('heroicon-o-truck')
                             ->schema([
-                                Infolists\Components\TextEntry::make('stokMobil.mobil.nama')
-                                    ->label('Mobil'),
-                                Infolists\Components\TextEntry::make('stokMobil.varian.nama')
-                                    ->label('Varian'),
-                                Infolists\Components\TextEntry::make('stokMobil.warna')
-                                    ->label('Warna'),
-                                Infolists\Components\TextEntry::make('stokMobil.no_rangka')
-                                    ->label('Nomor Rangka'),
-                                Infolists\Components\TextEntry::make('stokMobil.no_mesin')
-                                    ->label('Nomor Mesin'),
-                                Infolists\Components\TextEntry::make('stokMobil.tahun')
-                                    ->label('Tahun'),
+                                Infolists\Components\Section::make()
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('stokMobil.mobil.nama')->label('Mobil'),
+                                        Infolists\Components\TextEntry::make('stokMobil.varian.nama')->label('Varian'),
+                                        Infolists\Components\TextEntry::make('stokMobil.warna')->label('Warna'),
+                                        Infolists\Components\TextEntry::make('stokMobil.tahun')->label('Tahun'),
+                                        Infolists\Components\TextEntry::make('stokMobil.no_rangka')->label('No. Rangka'),
+                                        Infolists\Components\TextEntry::make('stokMobil.no_mesin')->label('No. Mesin'),
+                                    ])->columns(2),
                             ]),
-                    ]),
-
-                Infolists\Components\Section::make('Data Pembeli')
-                    ->schema([
-                        Infolists\Components\Grid::make(2)
+                        Infolists\Components\Tabs\Tab::make('Data Pembeli')
+                            ->icon('heroicon-o-user')
                             ->schema([
-                                Infolists\Components\TextEntry::make('nama_pembeli')
-                                    ->label('Nama Lengkap'),
-                                Infolists\Components\TextEntry::make('nik_pembeli')
-                                    ->label('NIK'),
-                                Infolists\Components\TextEntry::make('telepon_pembeli')
-                                    ->label('Telepon'),
-                                Infolists\Components\TextEntry::make('email_pembeli')
-                                    ->label('Email'),
-                                Infolists\Components\TextEntry::make('alamat_pembeli')
-                                    ->label('Alamat')
-                                    ->columnSpanFull(),
+                                Infolists\Components\Section::make()
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('nama_pembeli'),
+                                        Infolists\Components\TextEntry::make('nik_pembeli'),
+                                        Infolists\Components\TextEntry::make('telepon_pembeli'),
+                                        Infolists\Components\TextEntry::make('email_pembeli'),
+                                        Infolists\Components\TextEntry::make('alamat_pembeli')->columnSpanFull(),
+                                        Infolists\Components\TextEntry::make('tanggal_lahir_pembeli')->date(),
+                                        Infolists\Components\TextEntry::make('jenis_kelamin_pembeli')->formatStateUsing(fn($state) => $state === 'L' ? 'Laki-laki' : 'Perempuan'),
+                                        Infolists\Components\TextEntry::make('pekerjaan_pembeli'),
+                                    ])->columns(2),
                             ]),
-                    ]),
-
-                Infolists\Components\Section::make('Detail Pembayaran')
-                    ->schema([
-                        Infolists\Components\Grid::make(2)
+                        Infolists\Components\Tabs\Tab::make('Detail Kredit/Leasing')
+                            ->icon('heroicon-o-banknotes')
+                            ->visible(fn(Pembelian $record) => in_array($record->metode_pembayaran, ['kredit_bank', 'leasing']))
                             ->schema([
-                                Infolists\Components\TextEntry::make('harga_jual')
-                                    ->label('Harga Jual')
-                                    ->money('IDR'),
-                                Infolists\Components\TextEntry::make('metode_pembayaran')
-                                    ->label('Metode Pembayaran')
-                                    ->formatStateUsing(fn (string $state): string => match ($state) {
-                                        'cash' => 'Tunai',
-                                        'kredit' => 'Kredit Bank',
-                                        'leasing' => 'Leasing',
-                                        default => $state,
-                                    }),
-                                Infolists\Components\TextEntry::make('dp')
-                                    ->label('Down Payment')
-                                    ->money('IDR'),
-                                Infolists\Components\TextEntry::make('sisa_pembayaran')
-                                    ->label('Sisa Pembayaran')
-                                    ->money('IDR'),
+                                Infolists\Components\Section::make('Informasi Leasing/Bank')
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('nama_leasing_bank'),
+                                        Infolists\Components\TextEntry::make('kontak_leasing_bank'),
+                                        Infolists\Components\TextEntry::make('tenor_bulan')->suffix(' bulan'),
+                                        Infolists\Components\TextEntry::make('suku_bunga_tahunan_persen')->suffix('%'),
+                                        Infolists\Components\TextEntry::make('jenis_bunga')->formatStateUsing(fn($state) => ucfirst($state)),
+                                        Infolists\Components\TextEntry::make('cicilan_per_bulan')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('pokok_hutang_awal')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('angsuran_pertama_dibayar_kapan')->formatStateUsing(fn($state) => strtoupper($state)),
+                                    ])->columns(2),
+                                Infolists\Components\Section::make('Detail DP')
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('dp')->label('DP Total')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('dp_murni')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('subsidi_dp')->money('IDR'),
+                                    ])->columns(3),
+                                Infolists\Components\Section::make('Biaya Tambahan')
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('biaya_admin_leasing')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('biaya_provisi')->money(fn(Pembelian $record) => $record->tipe_biaya_provisi !== 'persen' ? 'IDR' : null)->suffix(fn(Pembelian $record) => $record->tipe_biaya_provisi === 'persen' ? '%' : null),
+                                    ])->columns(2),
+                                Infolists\Components\Section::make('Asuransi')
+                                    ->schema([
+                                        Infolists\Components\TextEntry::make('nama_asuransi'),
+                                        Infolists\Components\TextEntry::make('jenis_asuransi')->formatStateUsing(fn($state) => ucfirst(str_replace('_', ' ', $state))),
+                                        Infolists\Components\TextEntry::make('periode_asuransi_tahun')->suffix(' tahun'),
+                                        Infolists\Components\TextEntry::make('premi_asuransi_total')->money('IDR'),
+                                        Infolists\Components\TextEntry::make('pembayaran_premi_asuransi')->formatStateUsing(fn($state) => ucfirst(str_replace('_', ' ', $state))),
+                                    ])->columns(2),
                             ]),
-                    ]),
+                        Infolists\Components\Tabs\Tab::make('Catatan')
+                            ->icon('heroicon-o-clipboard-document-list')
+                            ->schema([
+                                Infolists\Components\TextEntry::make('catatan')->html(),
+                            ]),
+                    ])->columnSpanFull(),
             ]);
     }
 
     public static function getRelations(): array
     {
         return [
-            //
+            RelationManagers\PembayaransRelationManager::class,
         ];
     }
 

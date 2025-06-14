@@ -3,6 +3,10 @@
 namespace App\Providers;
 
 use Illuminate\Support\ServiceProvider;
+use App\Models\Pembelian;
+use App\Observers\PembelianObserver;
+use App\Models\Pembayaran;
+use App\Observers\PembayaranObserver;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -19,6 +23,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Pembelian::observe(PembelianObserver::class);
+        Pembayaran::observe(PembayaranObserver::class);
     }
 }

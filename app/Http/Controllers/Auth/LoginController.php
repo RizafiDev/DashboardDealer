@@ -19,19 +19,21 @@ class LoginController extends Controller
             'password' => ['required'],
         ]);
 
-        if (Auth::attempt($credentials)) {
+        // Gunakan guard 'karyawan' secara eksplisit
+        if (Auth::guard('karyawan')->attempt($credentials)) {
             $request->session()->regenerate();
             return redirect()->intended('/absensi');
         }
 
         return back()->withErrors([
             'email' => 'Email atau password salah.',
-        ]);
+        ])->withInput($request->only('email')); // Tambahkan withInput
     }
 
     public function logout(Request $request)
     {
-        Auth::logout();
+        // Gunakan guard 'karyawan' secara eksplisit
+        Auth::guard('karyawan')->logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
         return redirect('/');
