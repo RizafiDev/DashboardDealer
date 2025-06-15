@@ -53,8 +53,8 @@ class PembelianResource extends Resource
                                 ->description('Pilih sales yang melayani dan mobil yang akan dijual')
                                 ->schema([
                                     Forms\Components\Select::make('karyawan_id')
+                                        ->relationship('karyawan', 'nama') // Menggunakan relationship untuk efisiensi
                                         ->label('Sales Yang Melayani')
-                                        ->options(Karyawan::where('status', 'aktif')->pluck('nama', 'id'))
                                         ->searchable()
                                         ->preload()
                                         ->required()
@@ -62,20 +62,12 @@ class PembelianResource extends Resource
 
                                     Forms\Components\Select::make('mobil_id')
                                         ->label('Pilih Mobil')
-                                        ->options(function (Get $get, $state) {
-                                            $mobils = Mobil::with('merek')->get();
-                                            $options = $mobils->mapWithKeys(fn($mobil) => [
+                                        ->relationship('stokMobil.mobil', 'nama') // Pre-fill dari relasi
+                                        ->options(
+                                            Mobil::with('merek')->get()->mapWithKeys(fn($mobil) => [
                                                 $mobil->id => ($mobil->merek?->nama ? $mobil->merek->nama . ' ' : '') . $mobil->nama,
-                                            ]);
-                                            // Tambahkan value lama jika tidak ada di list (misal data sudah tidak aktif)
-                                            if ($state && !$options->has($state)) {
-                                                $mobil = Mobil::find($state);
-                                                if ($mobil) {
-                                                    $options->put($mobil->id, ($mobil->merek?->nama ? $mobil->merek->nama . ' ' : '') . $mobil->nama);
-                                                }
-                                            }
-                                            return $options;
-                                        })
+                                            ])
+                                        )
                                         ->searchable()
                                         ->preload()
                                         ->required()
@@ -88,51 +80,61 @@ class PembelianResource extends Resource
 
                                     Forms\Components\Select::make('varian_id')
                                         ->label('Varian')
-                                        ->options(function (Get $get, $state) {
-                                            $query = Varian::query()->where('mobil_id', $get('mobil_id'))->where('is_active', true);
-                                            $options = $query->get()->filter(fn($varian) => !empty($varian->nama))->pluck('nama', 'id');
-                                            if ($state && !$options->has($state)) {
-                                                $varian = Varian::find($state);
-                                                if ($varian) {
-                                                    $options->put($varian->id, $varian->nama);
-                                                }
+                                        ->options(function (Get $get, $state): Collection {
+                                            $mobilId = $get('mobil_id');
+                                            if (!$mobilId) {
+                                                return collect();
                                             }
-                                            return $options;
+
+                                            $query = Varian::query()->where('mobil_id', $mobilId);
+
+                                            // Saat edit, pastikan varian yang sudah terpilih tetap ada di list
+                                            if ($state) {
+                                                $query->orWhere('id', $state);
+                                            }
+
+                                            return $query->get()->pluck('nama', 'id');
                                         })
                                         ->searchable()
                                         ->preload()
                                         ->required()
                                         ->live()
-                                        ->afterStateUpdated(function (Set $set) {
-                                            $set('stok_mobil_id', null);
-                                        })
+                                        ->afterStateUpdated(fn(Set $set) => $set('stok_mobil_id', null))
                                         ->columnSpan(1),
 
                                     Forms\Components\Select::make('stok_mobil_id')
                                         ->label('Pilih Unit Mobil')
-                                        ->options(function (Get $get, $state) {
-                                            $query = StokMobil::query()
-                                                ->where('mobil_id', $get('mobil_id'))
-                                                ->where('varian_id', $get('varian_id'))
-                                                ->where('status', 'ready');
-                                            $options = $query->get()
-                                                ->filter(fn($stok) => !empty($stok->warna) && !empty($stok->no_rangka))
-                                                ->mapWithKeys(fn($stok) => [
-                                                    $stok->id => "{$stok->warna} - {$stok->no_rangka} - Rp " . number_format($stok->harga_jual, 0, ',', '.')
-                                                ]);
-                                            if ($state && !$options->has($state)) {
-                                                $stok = StokMobil::find($state);
-                                                if ($stok) {
-                                                    $options->put($stok->id, "{$stok->warna} - {$stok->no_rangka} - Rp " . number_format($stok->harga_jual, 0, ',', '.'));
-                                                }
+                                        ->options(function (Get $get, $state): Collection {
+                                            $mobilId = $get('mobil_id');
+                                            $varianId = $get('varian_id');
+                                            if (!$mobilId || !$varianId) {
+                                                return collect();
                                             }
-                                            return $options;
+
+                                            $query = StokMobil::query()
+                                                ->where('mobil_id', $mobilId)
+                                                ->where('varian_id', $varianId);
+
+                                            // Saat edit, unit yang sudah terpilih (misal statusnya 'booking' atau 'sold')
+                                            // harus tetap muncul di pilihan.
+                                            $query->where(function (Builder $q) use ($state) {
+                                                $q->where('status', 'ready')
+                                                    ->orWhere('id', $state);
+                                            });
+
+                                            return $query->get()->mapWithKeys(fn($stok) => [
+                                                $stok->id => "{$stok->warna} - {$stok->no_rangka} - Rp " . number_format($stok->harga_jual, 0, ',', '.')
+                                            ]);
+                                        })
+                                        ->getOptionLabelFromRecordUsing(function (StokMobil $record) {
+                                            // Ini untuk menampilkan label saat form edit dimuat
+                                            return "{$record->warna} - {$record->no_rangka} - Rp " . number_format($record->harga_jual, 0, ',', '.');
                                         })
                                         ->searchable()
                                         ->preload()
                                         ->required()
                                         ->live()
-                                        ->afterStateUpdated(function (Set $set, Get $get, $state) {
+                                        ->afterStateUpdated(function (Set $set, $state) {
                                             if ($state) {
                                                 $stok = StokMobil::find($state);
                                                 if ($stok) {
@@ -239,7 +241,7 @@ class PembelianResource extends Resource
                                         ->prefix('Rp')
                                         ->numeric()
                                         ->live(onBlur: true)
-                                        ->required(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing']))
+                                        ->required(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing', 'tunai_bertahap']))
                                         ->visible(fn(Get $get) => in_array($get('metode_pembayaran'), ['kredit_bank', 'leasing', 'tunai_bertahap'])),
                                     Forms\Components\TextInput::make('dp_murni')
                                         ->label('DP Murni dari Customer')

@@ -5,9 +5,12 @@ namespace App\Filament\Resources;
 use App\Filament\Resources\StokMobilResource\Pages;
 use App\Filament\Resources\StokMobilResource\RelationManagers\ServiceRecordsRelationManager;
 use App\Models\StokMobil;
+use App\Models\Varian; // Import Varian model
 use Filament\Forms;
 use Filament\Resources\Resource;
 use Filament\Tables;
+use Filament\Forms\Get; // Import Get
+use Filament\Forms\Set; // Import Set
 
 class StokMobilResource extends Resource
 {
@@ -27,12 +30,24 @@ class StokMobilResource extends Resource
                         ->relationship('mobil', 'nama')
                         ->required()
                         ->searchable()
-                        ->preload(),
+                        ->preload()
+                        ->live() // Penting untuk memicu pembaruan field lain
+                        ->afterStateUpdated(fn(Set $set) => $set('varian_id', null)), // Reset varian_id saat mobil_id berubah
+
                     Forms\Components\Select::make('varian_id')
                         ->label('Varian')
-                        ->relationship('varian', 'nama')
+                        ->options(function (Get $get) { // Gunakan Get untuk mendapatkan nilai mobil_id
+                            $mobilId = $get('mobil_id');
+                            if ($mobilId) {
+                                return Varian::where('mobil_id', $mobilId)->pluck('nama', 'id');
+                            }
+                            return [];
+                        })
                         ->searchable()
-                        ->preload(),
+                        // ->preload() // Hindari preload pada select yang opsinya dinamis
+                        ->required(fn(Get $get) => !empty($get('mobil_id'))) // Varian wajib jika mobil dipilih
+                        ->placeholder('Pilih Mobil terlebih dahulu'),
+
                     Forms\Components\TextInput::make('warna')
                         ->required()
                         ->maxLength(50)
@@ -40,7 +55,7 @@ class StokMobilResource extends Resource
                     Forms\Components\TextInput::make('tahun')
                         ->required()
                         ->numeric()
-                        ->minValue(2000)
+                        ->minValue(1980) // Mungkin mobil tua juga ada
                         ->maxValue(date('Y') + 1)
                         ->placeholder(date('Y')),
                     Forms\Components\TextInput::make('no_rangka')
@@ -74,7 +89,7 @@ class StokMobilResource extends Resource
                     Forms\Components\TextInput::make('laba')
                         ->disabled()
                         ->dehydrated(false)
-                        ->formatStateUsing(fn ($record, $state) => $record ? number_format($record->laba, 0, ',', '.') : null)
+                        ->formatStateUsing(fn(?StokMobil $record) => $record && $record->laba !== null ? number_format($record->laba, 0, ',', '.') : 'Rp 0')
                         ->prefix('Rp')
                         ->helperText('Otomatis: harga jual - harga beli - total harga service'),
                     Forms\Components\DatePicker::make('tanggal_masuk')
@@ -82,10 +97,23 @@ class StokMobilResource extends Resource
                         ->placeholder('Tanggal unit masuk stok'),
                     Forms\Components\TextInput::make('lokasi')
                         ->maxLength(100)
-                        ->placeholder('Lokasi unit, contoh: Gudang Utama'),
+                        ->placeholder('Lokasi unit, contoh: Gudang Utama')
+                        ->columnSpan(1),
+                    Forms\Components\Textarea::make('kelengkapan_mobil')
+                        ->label('Kelengkapan Mobil')
+                        ->rows(3)
+                        ->placeholder("Contoh:\n- Kunci serep ada\n- Buku manual lengkap\n- Dongkrak original")
+                        ->columnSpanFull(),
+                    Forms\Components\KeyValue::make('fitur_override')
+                        ->label('Penyesuaian Fitur')
+                        ->keyLabel('Nama Fitur')
+                        ->valueLabel('Status/Keterangan Fitur')
+                        ->helperText('Isi jika ada fitur standar varian yang hilang atau ada tambahan. Contoh: { "sunroof": "tidak ada", "audio_custom": "terpasang speaker JBL" }')
+                        ->columnSpanFull(),
                     Forms\Components\Textarea::make('keterangan')
                         ->rows(2)
-                        ->placeholder('Keterangan tambahan (opsional)'),
+                        ->placeholder('Keterangan tambahan (opsional)')
+                        ->columnSpanFull(),
                 ]),
         ]);
     }
@@ -101,7 +129,8 @@ class StokMobilResource extends Resource
                 Tables\Columns\TextColumn::make('varian.nama')
                     ->label('Varian')
                     ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->placeholder('-'),
                 Tables\Columns\BadgeColumn::make('status')
                     ->colors([
                         'success' => 'ready',
@@ -121,31 +150,33 @@ class StokMobilResource extends Resource
                 Tables\Columns\TextColumn::make('no_rangka')
                     ->label('No. Rangka')
                     ->searchable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('no_mesin')
                     ->label('No. Mesin')
                     ->searchable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('harga_beli')
                     ->money('IDR')
                     ->label('Harga Beli')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('harga_jual')
                     ->money('IDR')
                     ->label('Harga Jual')
                     ->sortable(),
-                Tables\Columns\TextColumn::make('laba')
+                Tables\Columns\TextColumn::make('laba') // Akan menggunakan accessor model
                     ->money('IDR')
-                    ->label('Laba')
-                    ->sortable()
-                    ->color(fn ($record) => $record->laba > 0 ? 'success' : 'danger'),
+                    ->label('Laba Bersih')
+                    ->sortable() // Sorting mungkin berdasarkan laba dasar di DB
+                    ->color(fn($record) => $record->laba > 0 ? 'success' : ($record->laba < 0 ? 'danger' : 'gray')),
                 Tables\Columns\TextColumn::make('lokasi')
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('tanggal_masuk')
                     ->date()
                     ->label('Tgl Masuk')
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('status')
@@ -156,15 +187,19 @@ class StokMobilResource extends Resource
                         'indent' => 'Indent',
                     ]),
                 Tables\Filters\SelectFilter::make('mobil')->relationship('mobil', 'nama'),
+                // Filter Varian mungkin perlu kustomisasi jika ingin dependen juga, tapi untuk filter tabel biasanya independen
                 Tables\Filters\SelectFilter::make('varian')->relationship('varian', 'nama'),
-                Tables\Filters\SelectFilter::make('warna'),
+                // Tables\Filters\SelectFilter::make('warna'), // Ini akan error jika warna tidak ada di tabel relasi
                 Tables\Filters\TernaryFilter::make('laba')
-                    ->label('Laba > 0')
+                    ->label('Laba Bersih > 0')
                     ->trueLabel('Untung')
-                    ->falseLabel('Rugi')
+                    ->falseLabel('Rugi / BEP')
                     ->queries(
-                        true: fn ($query) => $query->whereRaw('harga_jual > harga_beli'),
-                        false: fn ($query) => $query->whereRaw('harga_jual <= harga_beli'),
+                        true: fn($query) => $query->whereRaw('(harga_jual - harga_beli - (SELECT COALESCE(SUM(harga_service),0) FROM service_records WHERE service_records.stok_mobil_id = stok_mobils.id)) > 0'),
+                        false: fn($query) => $query->whereRaw('(harga_jual - harga_beli - (SELECT COALESCE(SUM(harga_service),0) FROM service_records WHERE service_records.stok_mobil_id = stok_mobils.id)) <= 0'),
+                        // Atau jika ingin filter berdasarkan laba dasar (DB virtual column)
+                        // true: fn ($query) => $query->where('laba', '>', 0),
+                        // false: fn ($query) => $query->where('laba', '<=', 0),
                     ),
             ])
             ->actions([
@@ -189,7 +224,7 @@ class StokMobilResource extends Resource
             'index' => Pages\ListStokMobils::route('/'),
             'create' => Pages\CreateStokMobil::route('/create'),
             'edit' => Pages\EditStokMobil::route('/{record}/edit'),
-            'view' => Pages\ViewStokMobil::route('/{record}'), // Aktifkan view page
+            'view' => Pages\ViewStokMobil::route('/{record}'),
         ];
     }
 }

@@ -4,8 +4,7 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class extends Migration
-{
+return new class extends Migration {
     /**
      * Run the migrations.
      */
@@ -22,10 +21,13 @@ return new class extends Migration
             $table->enum('status', ['ready', 'sold', 'booking', 'indent'])->default('ready');
             $table->decimal('harga_beli', 15, 2);
             $table->decimal('harga_jual', 15, 2);
-            $table->decimal('laba', 15, 2)->virtualAs('harga_jual - harga_beli');
+            // Laba dasar (sebelum service) dihitung oleh DB. Laba bersih (setelah service) dihitung oleh accessor model.
+            $table->decimal('laba', 15, 2)->virtualAs('harga_jual - harga_beli')->nullable();
             $table->date('tanggal_masuk')->nullable();
             $table->string('lokasi')->nullable();
             $table->text('keterangan')->nullable();
+            $table->text('kelengkapan_mobil')->nullable()->comment('Kelengkapan standar dan tambahan mobil, mis: kunci serep, buku manual, dll.');
+            $table->json('fitur_override')->nullable()->comment('Override fitur dari varian standar, mis: {"airbag_samping": false}');
             $table->timestamps();
         });
     }

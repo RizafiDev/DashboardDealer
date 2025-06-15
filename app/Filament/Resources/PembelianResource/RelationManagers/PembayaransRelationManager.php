@@ -22,7 +22,7 @@ class PembayaransRelationManager extends RelationManager
         return $form
             ->schema([
                 Forms\Components\Hidden::make('no_kwitansi')
-                    ->default(fn () => Pembayaran::generateNoKwitansi()),
+                    ->default(fn() => Pembayaran::generateNoKwitansi()),
                 Forms\Components\Grid::make(3)->schema([
                     Forms\Components\Select::make('jenis')
                         ->label('Jenis Pembayaran')
@@ -35,20 +35,22 @@ class PembayaransRelationManager extends RelationManager
                         ])
                         ->required()
                         ->live()
-                        ->afterStateUpdated(function (Set $set, Get $get, $state) {
+                        ->afterStateUpdated(function (Set $set, Get $get, $state, RelationManager $livewire) {
+                            /** @var Pembelian $pembelian */
+                            $pembelian = $livewire->getOwnerRecord();
+                            if (!$pembelian) {
+                                return;
+                            }
+
                             if ($state === 'tunai_lunas') {
-                                /** @var Pembelian $pembelian */
-                                $pembelian = $this->getOwnerRecord();
-                                if ($pembelian) {
-                                    $set('jumlah', $pembelian->sisa_pembayaran_aktual);
-                                }
+                                $set('jumlah', $pembelian->sisa_pembayaran_aktual);
                             } elseif ($state === 'dp') {
-                                 /** @var Pembelian $pembelian */
-                                $pembelian = $this->getOwnerRecord();
-                                if ($pembelian && $pembelian->dp > 0) {
-                                     $totalDpPaid = $pembelian->pembayarans()->where('jenis', 'dp')->sum('jumlah');
-                                     $sisaDp = $pembelian->dp - $totalDpPaid;
-                                     $set('jumlah', $sisaDp > 0 ? $sisaDp : 0);
+                                if ($pembelian->dp > 0) {
+                                    $totalDpPaid = $pembelian->pembayarans()->where('jenis', 'dp')->sum('jumlah');
+                                    $sisaDp = $pembelian->dp - $totalDpPaid;
+                                    $set('jumlah', $sisaDp > 0 ? $sisaDp : 0);
+                                } else {
+                                    $set('jumlah', 0); // Default to 0 if no DP amount set on Pembelian
                                 }
                             }
                         })
@@ -58,7 +60,8 @@ class PembayaransRelationManager extends RelationManager
                         ->prefix('Rp')
                         ->numeric()
                         ->required()
-                        ->disabled(fn (Get $get) => $get('jenis') === 'tunai_lunas')
+                        // Ubah disabled menjadi readOnly
+                        ->readOnly(fn(Get $get) => $get('jenis') === 'tunai_lunas')
                         ->helperText(function (Get $get): ?string {
                             if ($get('jenis') === 'tunai_lunas') {
                                 return 'Jumlah diisi otomatis sejumlah sisa pembayaran.';
@@ -85,10 +88,9 @@ class PembayaransRelationManager extends RelationManager
                     ->live()
                     ->required()
                     ->columnSpanFull(),
-                
-                // Conditional fields for Transfer Bank
+
                 Forms\Components\Section::make('Detail Transfer Bank')
-                    ->visible(fn (Get $get) => $get('metode_pembayaran_utama') === 'transfer')
+                    ->visible(fn(Get $get) => $get('metode_pembayaran_utama') === 'transfer')
                     ->schema([
                         Forms\Components\TextInput::make('nama_bank_pengirim')->label('Bank Pengirim'),
                         Forms\Components\TextInput::make('nomor_rekening_pengirim')->label('No. Rekening Pengirim'),
@@ -102,9 +104,8 @@ class PembayaransRelationManager extends RelationManager
                         Forms\Components\TextInput::make('nomor_referensi_transaksi')->label('No. Referensi Transfer'),
                     ])->columns(2),
 
-                // Conditional fields for EDC
                 Forms\Components\Section::make('Detail EDC')
-                    ->visible(fn (Get $get) => in_array($get('metode_pembayaran_utama'), ['edc_debit', 'edc_kredit']))
+                    ->visible(fn(Get $get) => in_array($get('metode_pembayaran_utama'), ['edc_debit', 'edc_kredit']))
                     ->schema([
                         Forms\Components\TextInput::make('nama_bank_pengirim')->label('Bank Kartu'),
                         Forms\Components\TextInput::make('nomor_kartu_edc')->label('No. Kartu (4 Digit Terakhir)'),
@@ -112,18 +113,16 @@ class PembayaransRelationManager extends RelationManager
                         Forms\Components\TextInput::make('nomor_referensi_transaksi')->label('Trace No / Approval Code'),
                     ])->columns(2),
 
-                // Conditional fields for E-Wallet
                 Forms\Components\Section::make('Detail E-Wallet')
-                    ->visible(fn (Get $get) => $get('metode_pembayaran_utama') === 'ewallet')
+                    ->visible(fn(Get $get) => $get('metode_pembayaran_utama') === 'ewallet')
                     ->schema([
                         Forms\Components\Select::make('nama_ewallet')
                             ->options(['GoPay' => 'GoPay', 'OVO' => 'OVO', 'Dana' => 'Dana', 'ShopeePay' => 'ShopeePay', 'Lainnya' => 'Lainnya']),
                         Forms\Components\TextInput::make('nomor_referensi_transaksi')->label('ID Transaksi E-Wallet'),
                     ])->columns(2),
 
-                // Conditional fields for Cek/Giro
                 Forms\Components\Section::make('Detail Cek/Giro')
-                    ->visible(fn (Get $get) => $get('metode_pembayaran_utama') === 'cheque')
+                    ->visible(fn(Get $get) => $get('metode_pembayaran_utama') === 'cheque')
                     ->schema([
                         Forms\Components\TextInput::make('nama_bank_pengirim')->label('Bank Penerbit Cek/Giro'),
                         Forms\Components\TextInput::make('nomor_cek_giro')->label('Nomor Cek/Giro'),
@@ -132,7 +131,7 @@ class PembayaransRelationManager extends RelationManager
                             ->options(['belum_cair' => 'Belum Cair', 'cair' => 'Cair', 'ditolak' => 'Ditolak'])
                             ->default('belum_cair'),
                     ])->columns(2),
-                
+
                 Forms\Components\DatePicker::make('tanggal_bayar')
                     ->label('Tanggal Pembayaran Aktual')
                     ->default(now())
@@ -158,7 +157,7 @@ class PembayaransRelationManager extends RelationManager
                 Tables\Columns\TextColumn::make('jumlah')->money('IDR')->sortable(),
                 Tables\Columns\TextColumn::make('jenis')
                     ->badge()
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                    ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'dp' => 'DP',
                         'cicilan' => 'Cicilan',
                         'pelunasan' => 'Pelunasan',
@@ -169,12 +168,12 @@ class PembayaransRelationManager extends RelationManager
                     ->colors([
                         'primary' => 'dp',
                         'info' => 'cicilan',
-                        'success' => fn ($state) => $state === 'pelunasan' || $state === 'tunai_lunas',
+                        'success' => fn($state) => $state === 'pelunasan' || $state === 'tunai_lunas',
                         'warning' => 'biaya_lain',
                     ]),
                 Tables\Columns\TextColumn::make('metode_pembayaran_utama')
                     ->label('Metode')
-                    ->formatStateUsing(fn (?string $state): string => match ($state) {
+                    ->formatStateUsing(fn(?string $state): string => match ($state) {
                         'cash' => 'Tunai',
                         'transfer' => 'Transfer',
                         'edc_debit' => 'EDC Debit',
@@ -189,8 +188,29 @@ class PembayaransRelationManager extends RelationManager
             ->filters([])
             ->headerActions([
                 Tables\Actions\CreateAction::make()
-                    ->mutateFormDataUsing(function (array $data): array {
-                        // Logic before creation
+                    ->mutateFormDataUsing(function (array $data, RelationManager $livewire): array {
+                        // Memastikan 'jumlah' diisi dengan benar sebelum pembuatan, terutama untuk 'tunai_lunas'
+                        if (isset($data['jenis'])) {
+                            /** @var Pembelian $pembelian */
+                            $pembelian = $livewire->getOwnerRecord();
+                            if ($pembelian) {
+                                if ($data['jenis'] === 'tunai_lunas') {
+                                    $data['jumlah'] = $pembelian->sisa_pembayaran_aktual;
+                                } elseif ($data['jenis'] === 'dp') {
+                                    if ($pembelian->dp > 0) {
+                                        $totalDpPaid = $pembelian->pembayarans()->where('jenis', 'dp')->sum('jumlah');
+                                        $sisaDp = $pembelian->dp - $totalDpPaid;
+                                        $data['jumlah'] = $sisaDp > 0 ? $sisaDp : 0;
+                                    } else {
+                                        $data['jumlah'] = $data['jumlah'] ?? 0; // Jika DP tidak diset, gunakan input user atau 0
+                                    }
+                                }
+                            }
+                        }
+                        // Pastikan no_kwitansi selalu ada
+                        if (empty($data['no_kwitansi'])) {
+                            $data['no_kwitansi'] = Pembayaran::generateNoKwitansi();
+                        }
                         return $data;
                     }),
             ])
